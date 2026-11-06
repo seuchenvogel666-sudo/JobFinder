@@ -64,13 +64,12 @@ class JobRepository(private val settings: SettingsStore) {
             } else job
         }
 
-        // Filter: Umkreis und Alter
+        // Filter: nur Alter. Den Umkreis filtern die Jobbörsen selbst – ein eigener
+        // Entfernungsfilter würde bei gleichnamigen Orten fälschlich alles aussortieren.
         val now = System.currentTimeMillis()
         val filtered = withDistance.filter { job ->
-            val okDist = job.distanceKm == null || radiusKm <= 0 || job.distanceKm <= radiusKm + 5
-            val okAge = maxAgeDays <= 0 || job.publishedMillis == null ||
+            maxAgeDays <= 0 || job.publishedMillis == null ||
                     (now - job.publishedMillis) <= (maxAgeDays + 1) * 86_400_000L
-            okDist && okAge
         }
 
         // Dubletten entfernen (gleicher Titel + gleiche Firma)
@@ -87,7 +86,7 @@ class JobRepository(private val settings: SettingsStore) {
     private val baHeaders = mapOf("X-API-Key" to "jobboerse-jobsuche")
 
     private fun searchBa(query: String, placeText: String, radiusKm: Int, maxAgeDays: Int): List<Job> {
-        val sb = StringBuilder("?angebotsart=1&page=1&size=100&pav=false")
+        val sb = StringBuilder("?angebotsart=1&page=1&size=100")
         if (query.isNotBlank()) sb.append("&was=").append(Http.enc(query))
         if (placeText.isNotBlank()) {
             sb.append("&wo=").append(Http.enc(placeText))
@@ -95,37 +94,116 @@ class JobRepository(private val settings: SettingsStore) {
         }
         if (maxAgeDays > 0) sb.append("&veroeffentlichtseit=").append(maxAgeDays.coerceAtMost(100))
 
-        // Die BA stellt ihre Versionen gelegentlich um – daher mit Ausweichadresse
-        val raw = runCatching { Http.get("$baBase/pc/v4/jobs$sb", baHeaders) }
-            .getOrElse { Http.get("$baBase/pc/v6/jobs$sb", baHeaders) }
-        val json = JSONObject(raw)
-        val arr = json.optJSONArray("stellenangebote") ?: return emptyList()
+        // Die BA stellt ihre Schnittstelle gerade um (v4 -> v6, teils andere Feldnamen).
+        // Daher alle bekannten Adressen nacheinander probieren und flexibel auslesen.
+        val endpoints = listOf("pc/v6/jobs", "pc/v4/jobs", "pc/v4/app/jobs")
+        val errors = mutableListOf<String>()
+        var emptyAnswer = false
+        for (ep in endpoints) {
+            val raw = try {
+                Http.get("$baBase/$ep$sb", baHeaders)
+            } catch (e: Exception) {
+                errors += "$ep: ${e.message?.take(80)}"
+                continue
+            }
+            val json = runCatching { JSONObject(raw) }.getOrNull() ?: continue
+            val arr = findJobArray(json)
+            if (arr == null || arr.length() == 0) {
+                // Leere Antwort ist ein gültiges Ergebnis – aber nächste Version noch prüfen
+                emptyAnswer = true
+                continue
+            }
+            return parseBaJobs(arr)
+        }
+        if (emptyAnswer) return emptyList()
+        throw java.io.IOException(errors.joinToString(" | ").ifBlank { "keine Antwort" })
+    }
+
+    private val titleKeys = listOf("titel", "stellenangebotsTitel", "stellentitel", "beruf")
+    private val refKeys = listOf("refnr", "referenznummer", "hashId")
+
+    /** Findet die Liste der Stellen im JSON – egal unter welchem Namen. */
+    private fun findJobArray(any: Any?): JSONArray? {
+        if (any is JSONObject) {
+            any.optJSONArray("stellenangebote")?.let { return it }
+            var best: JSONArray? = null
+            for (k in any.keys()) {
+                val found = findJobArray(any.opt(k))
+                if (found != null && found.length() > (best?.length() ?: -1)) best = found
+            }
+            return best
+        }
+        if (any is JSONArray && any.length() > 0) {
+            val first = any.optJSONObject(0)
+            if (first != null && (titleKeys + refKeys).any { first.has(it) }) return any
+        }
+        return null
+    }
+
+    private fun JSONObject.str(keys: List<String>): String =
+        keys.map { optString(it) }.firstOrNull { it.isNotBlank() && it != "null" } ?: ""
+
+    /** Sucht rekursiv ein Objekt mit Koordinaten. */
+    private fun findCoords(any: Any?): Pair<Double, Double>? {
+        when (any) {
+            is JSONObject -> {
+                val lat = any.optDouble("lat", any.optDouble("breite"))
+                val lon = any.optDouble("lon", any.optDouble("laenge"))
+                if (!lat.isNaN() && !lon.isNaN()) return lat to lon
+                for (k in any.keys()) findCoords(any.opt(k))?.let { return it }
+            }
+            is JSONArray -> for (i in 0 until any.length()) findCoords(any.opt(i))?.let { return it }
+        }
+        return null
+    }
+
+    private fun parseBaJobs(arr: JSONArray): List<Job> {
         val jobs = mutableListOf<Job>()
         for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            val refnr = o.optString("refnr")
+            val o = arr.optJSONObject(i) ?: continue
+            val refnr = o.str(refKeys)
             val ort = o.optJSONObject("arbeitsort")
-            val coords = ort?.optJSONObject("koordinaten")
-            val location = listOf(ort?.optString("plz") ?: "", ort?.optString("ort") ?: "")
-                .filter { it.isNotBlank() }.joinToString(" ")
+                ?: o.optJSONArray("arbeitsorte")?.optJSONObject(0)
+                ?: o.optJSONObject("arbeitsorteDto")
+            val location = if (ort != null) {
+                listOf(ort.optString("plz"), ort.optString("ort"))
+                    .filter { it.isNotBlank() && it != "null" }.joinToString(" ")
+                    .ifBlank { ort.optString("region") }
+            } else ""
+            val coords = findCoords(ort ?: o)
             val dist = ort?.optString("entfernung")?.replace(",", ".")?.toDoubleOrNull()
-            val externalUrl = o.optString("externeUrl")
+            val externalUrl = o.optString("externeUrl").takeIf { it.startsWith("http") } ?: ""
+            val arbeitgeber = o.opt("arbeitgeber")
+            val company = when (arbeitgeber) {
+                is JSONObject -> arbeitgeber.str(listOf("name", "anzeigeName", "arbeitgeber"))
+                is String -> arbeitgeber
+                else -> ""
+            }.ifBlank { o.str(listOf("arbeitgeberName", "firma")) }
+            val title = o.str(titleKeys)
+            if (title.isBlank() && refnr.isBlank()) continue
             jobs += Job(
-                id = "ba-$refnr",
+                id = "ba-" + refnr.ifBlank { i.toString() },
                 source = "Arbeitsagentur",
-                title = o.optString("titel").ifBlank { o.optString("beruf") },
-                company = o.optString("arbeitgeber"),
+                title = title.ifBlank { "Stellenangebot" },
+                company = company,
                 location = location,
-                lat = coords?.optDouble("lat")?.takeIf { !it.isNaN() },
-                lon = coords?.optDouble("lon")?.takeIf { !it.isNaN() },
+                lat = coords?.first,
+                lon = coords?.second,
                 distanceKm = dist,
                 publishedMillis = parseDate(
-                    o.optString("aktuelleVeroeffentlichungsdatum")
-                        .ifBlank { o.optString("modifikationsTimestamp") }
+                    o.str(
+                        listOf(
+                            "aktuelleVeroeffentlichungsdatum", "veroeffentlichungsdatum",
+                            "veroeffentlichtAm", "modifikationsTimestamp", "eintrittsdatum"
+                        )
+                    )
                 ),
-                url = externalUrl.ifBlank { "https://www.arbeitsagentur.de/jobsuche/jobdetail/$refnr" },
-                snippet = o.optString("beruf"),
-                baRefnr = refnr
+                url = externalUrl.ifBlank {
+                    if (refnr.isNotBlank()) "https://www.arbeitsagentur.de/jobsuche/jobdetail/$refnr"
+                    else "https://www.arbeitsagentur.de/jobsuche/"
+                },
+                snippet = o.optString("beruf").takeIf { it != "null" } ?: "",
+                baRefnr = refnr.ifBlank { null }
             )
         }
         return jobs
@@ -134,7 +212,10 @@ class JobRepository(private val settings: SettingsStore) {
     /** Lädt den vollständigen Anzeigentext einer BA-Stelle. */
     suspend fun loadBaDescription(refnr: String): String = withContext(Dispatchers.IO) {
         val encoded = Base64.encodeToString(refnr.toByteArray(), Base64.NO_WRAP)
-        val json = JSONObject(Http.get("$baBase/pc/v4/jobdetails/${Http.enc(encoded)}", baHeaders))
+        val path = Http.enc(encoded)
+        val raw = runCatching { Http.get("$baBase/pc/v4/jobdetails/$path", baHeaders) }
+            .getOrElse { Http.get("$baBase/pc/v3/jobdetails/$path", baHeaders) }
+        val json = JSONObject(raw)
         val known = listOf("stellenangebotsBeschreibung", "stellenbeschreibung", "beschreibung")
         val direct = known.map { json.optString(it) }.firstOrNull { it.isNotBlank() }
         (direct ?: longestString(json)).stripHtml()
