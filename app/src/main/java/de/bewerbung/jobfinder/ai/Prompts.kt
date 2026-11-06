@@ -90,4 +90,13 @@ Regeln:
         appendLine()
         appendLine("Gib den überarbeiteten Lebenslauf aus.")
     }
+
+    /** Fasst Systemanweisung und Inhalt zu einem Text für eine normale Chat-App zusammen. */
+    fun forChat(system: String, user: String): String = buildString {
+        appendLine(system)
+        appendLine()
+        appendLine(user)
+        appendLine()
+        append("Antworte nur mit dem fertigen Text, ohne Einleitung, ohne Rückfragen und ohne Markdown.")
+    }
 }
