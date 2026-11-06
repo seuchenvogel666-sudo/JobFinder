@@ -1,0 +1,42 @@
+name: Android APK bauen
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Java 17 einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android SDK einrichten
+        uses: android-actions/setup-android@v3
+
+      - name: Gradle einrichten
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: APK bauen (Debug, direkt installierbar)
+        run: gradle assembleDebug --stacktrace
+
+      - name: APK umbenennen
+        run: cp app/build/outputs/apk/debug/app-debug.apk JobFinder.apk
+
+      - name: APK hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: JobFinder-APK
+          path: JobFinder.apk
+          retention-days: 30
