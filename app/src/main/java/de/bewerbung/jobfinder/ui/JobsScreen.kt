@@ -303,7 +303,7 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
         }
 
         items(sorted, key = { it.id }) { job ->
-            JobCard(job, vm.radius.remote) { vm.screen = Screen.JobDetail(job) }
+            JobCard(job, vm.radius.remote, job.id in vm.enrichingIds) { vm.screen = Screen.JobDetail(job) }
         }
         if (vm.hasSearched) {
             item {
@@ -332,7 +332,7 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun JobCard(job: Job, remote: Boolean, onClick: () -> Unit) {
+private fun JobCard(job: Job, remote: Boolean, enriching: Boolean, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -351,8 +351,9 @@ private fun JobCard(job: Job, remote: Boolean, onClick: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 // Entfernung zur Arbeitsstelle (Luftlinie) als gut sichtbares Kästchen
                 val dist = when {
-                    job.distanceKm != null -> formatDistance(job.distanceKm)
+                    job.distanceKm != null -> "ca. " + formatDistance(job.distanceKm)
                     remote -> "Remote"
+                    enriching -> "…"
                     else -> "? km"
                 }
                 Surface(
@@ -364,7 +365,11 @@ private fun JobCard(job: Job, remote: Boolean, onClick: () -> Unit) {
                         Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Filled.Straighten, null, Modifier.size(14.dp))
+                        if (enriching && job.distanceKm == null) {
+                            CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                        } else {
+                            Icon(Icons.Filled.Straighten, null, Modifier.size(14.dp))
+                        }
                         Spacer(Modifier.width(4.dp))
                         Text(dist, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     }

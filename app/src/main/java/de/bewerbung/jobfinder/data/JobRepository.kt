@@ -74,12 +74,19 @@ class JobRepository(context: Context) {
 
     /** Schlägt bis zu 25 unterschiedliche Ortsangaben nach (parallel, mit Zwischenspeicher). */
     private suspend fun geocodeMissing(jobs: List<Job>): List<Job> = coroutineScope {
-        fun key(loc: String) = loc.substringBefore(",").substringBefore("(").replace(Regex("\\b\\d{5}\\b"), "").trim()
+        fun key(loc: String): String {
+            val plz = Regex("\\b\\d{5}\\b").find(loc)?.value ?: ""
+            return (plz + "|" + GeoRepository.cleanLocality(loc)).trim()
+        }
         val keys = jobs.filter { it.lat == null && it.location.isNotBlank() }
-            .map { key(it.location) }.filter { it.length > 1 && !it.contains("remote", true) }
+            .map { key(it.location) }.filter { it.length > 2 }
             .distinct().filter { it !in geoCache }.take(40)
         keys.map { k ->
-            async(Dispatchers.IO) { k to runCatching { GeoRepository.searchPlaces(k).firstOrNull() }.getOrNull() }
+            async(Dispatchers.IO) {
+                val plz = k.substringBefore("|").ifBlank { null }
+                val loc = k.substringAfter("|").ifBlank { null }
+                k to runCatching { GeoRepository.locate(plz, loc) }.getOrNull()
+            }
         }.awaitAll().forEach { (k, p) -> geoCache[k] = p }
         jobs.map { j ->
             if (j.lat != null || j.location.isBlank()) j

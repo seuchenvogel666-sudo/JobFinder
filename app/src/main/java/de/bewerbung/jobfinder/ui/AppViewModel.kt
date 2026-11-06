@@ -17,6 +17,7 @@ import de.bewerbung.jobfinder.data.DocumentStore
 import de.bewerbung.jobfinder.data.GeoRepository
 import de.bewerbung.jobfinder.data.Job
 import de.bewerbung.jobfinder.data.JobRepository
+import de.bewerbung.jobfinder.data.LocationEnricher
 import de.bewerbung.jobfinder.data.Place
 import de.bewerbung.jobfinder.data.RadiusOption
 import de.bewerbung.jobfinder.data.SettingsStore
@@ -29,6 +30,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job as CoJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -142,6 +146,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         settings.lastPlace = placeText
         searching = true
         hasSearched = true
+        enrichJob?.cancel()
+        enrichingIds = emptySet()
         viewModelScope.launch {
             var place = selectedPlace
             if (place != null && place.lat.isNaN()) {
@@ -168,11 +174,58 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             r.onSuccess {
                 jobs = it.jobs
                 searchNotes = it.notes
+                enrichLocations(place)
             }.onFailure {
                 jobs = emptyList()
                 searchNotes = listOf("Fehler: ${it.message}")
             }
             searching = false
+        }
+    }
+
+    // ---------- Arbeitsort aus der Anzeige ermitteln (für Entfernung) ----------
+    private val enricher by lazy { LocationEnricher(jobsRepo.web) }
+    var enrichingIds by mutableStateOf<Set<String>>(emptySet())
+    private var enrichJob: CoJob? = null
+
+    /**
+     * Für Stellen ohne Entfernung (v. a. LinkedIn/XING) im Hintergrund die Anzeige lesen,
+     * den Arbeitsort bestimmen und die Entfernung zum Suchort berechnen.
+     */
+    private fun enrichLocations(ref: Place?) {
+        enrichJob?.cancel()
+        if (radius.remote) { enrichingIds = emptySet(); return }
+        val targets = jobs.filter { it.distanceKm == null && it.baRefnr == null }.take(30)
+        enrichingIds = targets.map { it.id }.toSet()
+        enrichJob = viewModelScope.launch {
+            val sem = Semaphore(3)
+            targets.map { job ->
+                launch {
+                    sem.withPermit {
+                        val info = runCatching { enricher.enrich(job) }.getOrNull()
+                        if (info != null) {
+                            if (info.description.length > 300 && !descriptions.containsKey(job.id)) {
+                                descriptions[job.id] = info.description.take(15_000)
+                            }
+                            val lat = info.lat
+                            val lon = info.lon
+                            jobs = jobs.map { j ->
+                                if (j.id != job.id) j else {
+                                    val dist = if (ref != null && !ref.lat.isNaN() && lat != null && lon != null)
+                                        GeoRepository.distanceKm(ref.lat, ref.lon, lat, lon) else j.distanceKm
+                                    j.copy(
+                                        location = info.locality.ifBlank { j.location },
+                                        lat = lat ?: j.lat, lon = lon ?: j.lon,
+                                        distanceKm = dist
+                                    )
+                                }
+                            }
+                        }
+                        enrichingIds = enrichingIds - job.id
+                    }
+                }
+            }.joinAll()
+            enrichingIds = emptySet()
         }
     }
 

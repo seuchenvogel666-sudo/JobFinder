@@ -46,6 +46,29 @@ class SettingsStore(context: Context) {
         set(v) = p.edit().putString("lastPlace", v).apply()
 
     companion object {
+        /** Vorschläge fürs Auswahlmenü: Modellname to kurze Beschreibung. */
+        fun modelSuggestions(provider: AiProvider): List<Pair<String, String>> = when (provider) {
+            AiProvider.GEMINI -> listOf(
+                "gemini-flash-latest" to "Empfohlen – immer das aktuelle Flash-Modell, kostenlose Stufe",
+                "gemini-3.8-flash" to "Schnell, gute Qualität",
+                "gemini-3.6-flash" to "Schnell, gute Qualität (ältere Version)",
+                "gemini-3.5-flash-lite" to "Sehr günstig / großes Gratis-Kontingent",
+                "gemini-3.1-pro-preview" to "Höchste Qualität (Vorschau, ggf. kostenpflichtig)"
+            )
+            AiProvider.OPENAI -> listOf(
+                "gpt-5.4-mini" to "Empfohlen – günstig und gut für Anschreiben",
+                "gpt-5.4-nano" to "Am günstigsten, etwas einfachere Texte",
+                "gpt-5.5" to "Höchste Qualität, teurer",
+                "chat-latest" to "Immer das aktuelle ChatGPT-Modell"
+            )
+            AiProvider.CLAUDE -> listOf(
+                "claude-sonnet-5-5" to "Empfohlen – sehr gute Texte, mittlerer Preis",
+                "claude-haiku-5-5" to "Schnell und günstig",
+                "claude-opus-5-5" to "Höchste Qualität, teurer"
+            )
+            AiProvider.NONE -> emptyList()
+        }
+
         /** Modellnamen ändern sich häufig – in den Einstellungen anpassbar. */
         fun defaultModel(provider: AiProvider): String = when (provider) {
             AiProvider.OPENAI -> "gpt-5.4-mini"

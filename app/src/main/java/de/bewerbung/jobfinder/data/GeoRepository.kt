@@ -52,9 +52,11 @@ object GeoRepository {
     fun resolve(place: Place): Place {
         if (!place.lat.isNaN()) return place
         val plz = place.name.substringBefore(" ")
-        val ort = place.name.substringAfter(" ")
+        val ort = place.name.substringAfter(" ", "")
         val hit = runCatching { query("$plz $ort", "", postcodeMode = true).firstOrNull() }.getOrNull()
-            ?: runCatching { query(ort, "&osm_tag=place", postcodeMode = false).firstOrNull() }.getOrNull()
+            ?: ort.takeIf { it.isNotBlank() }?.let { o ->
+                runCatching { query(o, "&osm_tag=place", postcodeMode = false).firstOrNull() }.getOrNull()
+            }
         return if (hit != null) place.copy(lat = hit.lat, lon = hit.lon) else place
     }
 
@@ -87,6 +89,31 @@ object GeoRepository {
             }
         }
         return result.distinctBy { it.label }.take(8)
+    }
+
+    /** Entfernt Zusätze wie "Metropolregion", "und Umgebung", "(Hybrid)", Land usw. */
+    fun cleanLocality(raw: String): String = raw
+        .replace(Regex("\\(.*?\\)"), " ")
+        .replace(Regex("(?i)metropolregion|großraum|grossraum|region|und umgebung|umgebung|area|landkreis|kreis|stadt"), " ")
+        .replace(Regex("(?i)homeoffice|home office|remote|hybrid|vor ort|deutschland|germany|bundesweit"), " ")
+        .replace(Regex("\\b\\d{5}\\b"), " ")
+        .split(",", "/", "|", "•", "·", " - ").map { it.trim() }.firstOrNull { it.length > 1 } ?: ""
+
+    /** Findet einen Ort (nur echte Orte, keine Straßen o. Ä.) – oder null. */
+    fun findCity(raw: String): Place? {
+        val c = cleanLocality(raw).replace(Regex("\\s+"), " ").trim()
+        if (c.length < 2) return null
+        return runCatching { query(c, "&osm_tag=place", postcodeMode = false).firstOrNull() }.getOrNull()
+    }
+
+    /** Ort bestimmen: bevorzugt über PLZ, sonst über Ortsnamen. */
+    fun locate(postcode: String?, locality: String?): Place? {
+        val plz = postcode?.filter { it.isDigit() }?.takeIf { it.length == 5 }
+        if (plz != null) {
+            val r = resolve(Place("$plz ${locality ?: ""}".trim(), "", Double.NaN, Double.NaN))
+            if (!r.lat.isNaN()) return r
+        }
+        return locality?.let { findCity(it) }
     }
 
     /** Luftlinie in km. */

@@ -114,11 +114,7 @@ class WebJobScraper(private val context: Context) {
         val lines = c.card.lines().map { it.trim() }
             .filter { it.isNotBlank() && it != title && it.length < 120 }
         val dateLine = lines.firstOrNull { parseRelativeDate(it) != null }
-        val locLine = lines.firstOrNull {
-            it != dateLine && (Regex("\\b\\d{5}\\b").containsMatchIn(it) ||
-                    Regex("(?i)homeoffice|remote|hybrid|deutschland|bundesweit").containsMatchIn(it) ||
-                    Regex("^[A-ZÄÖÜ][a-zäöüß]+([ -][A-ZÄÖÜ]?[a-zäöüß]+)*(,.*)?$").matches(it))
-        } ?: ""
+        val locLine = lines.firstOrNull { it != dateLine && looksLikeLocation(it) } ?: ""
         val company = lines.firstOrNull {
             it != locLine && it != dateLine &&
                     !Regex("(?i)neu|new|gesponsert|sponsored|bewerb|€|stunde|vollzeit|teilzeit|merken|speichern")
@@ -137,6 +133,29 @@ class WebJobScraper(private val context: Context) {
             url = url,
             snippet = c.card.take(400)
         ).takeIf { index < 60 }
+    }
+
+    /** Typische Texte auf Ergebniskarten, die KEIN Ort sind (z. B. XING "Zu den ersten gehören"). */
+    private val notLocation = Regex(
+        "(?i)zu den ersten|gehören|bewerb|gehalt|vollzeit|teilzeit|minijob|befristet|unbefristet|" +
+                "festanstellung|gesponsert|sponsored|merken|speichern|top-job|topjob|" +
+                "schnell|einfach|easy|vor \\d|heute|gestern|tag|stunde|woche|monat|€|eur\\b|" +
+                "erfahrung|kenntnisse|m/w/d|w/m/d|gmbh|ag\\b|kg\\b|e\\.v\\.|unternehmen|mitarbeiter|" +
+                "bewertung|sterne|profil|anzeige|job|stelle|karriere"
+    )
+
+    private fun looksLikeLocation(line: String): Boolean {
+        if (line.length > 60 || notLocation.containsMatchIn(line)) return false
+        if (line.trim().lowercase() in setOf("neu", "new", "neu!", "top")) return false
+        if (Regex("\\b\\d{5}\\b").containsMatchIn(line)) return true
+        if (Regex("(?i)homeoffice|remote|hybrid|bundesweit").containsMatchIn(line)) return true
+        // "Berlin", "Frankfurt am Main", "München, Bayern, Deutschland", "Halle (Saale)"
+        val first = line.split(",").first().trim()
+        val words = first.split(Regex("[ -]+")).filter { it.isNotBlank() }
+        if (words.isEmpty() || words.size > 4) return false
+        val small = setOf("am", "an", "der", "im", "in", "bei", "ob", "vor", "a.", "d.", "i.")
+        return words.first().first().isUpperCase() &&
+                words.all { w -> w.lowercase() in small || w.first().isUpperCase() || w.startsWith("(") }
     }
 
     private fun normalizeUrl(site: WebSite, href: String): String {
@@ -196,6 +215,26 @@ class WebJobScraper(private val context: Context) {
         val result = runWebView(url, pageTextJs, minLength = 300, timeoutMs = 18_000)
         val text = runCatching { JSONTokener(result).nextValue() as? String }.getOrNull() ?: ""
         return text.replace(Regex("\\n\\s*\\n\\s*\\n+"), "\n\n").trim().take(15_000)
+    }
+
+    private val pageDataJs = """
+(function(){
+  var ld = [];
+  var ss = document.querySelectorAll('script[type="application/ld+json"]');
+  for (var i = 0; i < ss.length; i++) ld.push(ss[i].textContent);
+  var t = document.body ? document.body.innerText : '';
+  return JSON.stringify({ld: ld, text: t.substring(0, 20000)});
+})();
+""".trimIndent()
+
+    /** Lädt eine Anzeige im Browser und liefert strukturierte Daten (JSON-LD) und Seitentext. */
+    suspend fun pageData(url: String): Pair<List<String>, String> {
+        val result = runWebView(url, pageDataJs, minLength = 400, timeoutMs = 15_000)
+        val str = runCatching { JSONTokener(result).nextValue() as? String }.getOrNull() ?: return emptyList<String>() to ""
+        val o = runCatching { org.json.JSONObject(str) }.getOrNull() ?: return emptyList<String>() to ""
+        val arr = o.optJSONArray("ld")
+        val ld = if (arr == null) emptyList() else (0 until arr.length()).map { arr.optString(it) }
+        return ld to o.optString("text")
     }
 
     private suspend fun scrape(url: String, js: String): List<RawCard> {

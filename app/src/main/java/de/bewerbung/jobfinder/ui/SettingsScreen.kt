@@ -27,6 +27,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -47,15 +60,7 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     }
     var sender by remember { mutableStateOf(s.senderInfo) }
 
-    fun saveAll() {
-        s.aiProvider = provider
-        AiProvider.entries.filter { it != AiProvider.NONE }.forEach { p ->
-            s.setApiKey(p, keys.getValue(p).value)
-            s.setModel(p, models.getValue(p).value)
-        }
-        s.senderInfo = sender
-        vm.toast = "Einstellungen gespeichert ✓"
-    }
+    var modelMenu by remember { mutableStateOf(false) }
 
     Column(
         modifier
@@ -76,6 +81,7 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                         FilterChip(selected = provider == p, onClick = { provider = p; s.aiProvider = p }, label = { Text(p.label) })
                     }
                 }
+                SavedHint("Gespeichert: ${provider.label}")
                 if (provider != AiProvider.NONE) {
                     val keyState = keys.getValue(provider)
                     val modelState = models.getValue(provider)
@@ -86,19 +92,49 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                         visualTransformation = PasswordVisualTransformation(),
                         supportingText = {
                             val saved = keyState.value.replace(Regex("\\s"), "")
-                            Text(
-                                if (saved.isBlank()) "Noch kein Schlüssel gespeichert"
-                                else "✓ Gespeichert (endet auf …${saved.takeLast(4)})"
-                            )
+                            if (saved.isBlank()) Text("Noch kein Schlüssel eingetragen")
+                            else SavedHint("Gespeichert (endet auf …${saved.takeLast(4)})")
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
-                    OutlinedTextField(
-                        value = modelState.value,
-                        onValueChange = { modelState.value = it; s.setModel(provider, it) },
-                        label = { Text("Modell") }, singleLine = true,
-                        supportingText = { Text("Standard: ${SettingsStore.defaultModel(provider)} – nur ändern, wenn der Anbieter das Modell umbenennt") },
-                        modifier = Modifier.fillMaxWidth()
+                    Box {
+                        OutlinedTextField(
+                            value = modelState.value,
+                            onValueChange = { modelState.value = it; s.setModel(provider, it) },
+                            label = { Text("Modell") }, singleLine = true,
+                            trailingIcon = {
+                                IconButton(onClick = { modelMenu = true }) {
+                                    Icon(Icons.Filled.ArrowDropDown, "Vorschläge anzeigen")
+                                }
+                            },
+                            supportingText = {
+                                val v = modelState.value.trim()
+                                if (v.isBlank()) SavedHint("Leer – Standard wird genutzt: ${SettingsStore.defaultModel(provider)}")
+                                else SavedHint("Gespeichert: $v")
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
+                            SettingsStore.modelSuggestions(provider).forEach { (id, hint) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(id, fontWeight = FontWeight.SemiBold)
+                                            Text(hint, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    },
+                                    onClick = {
+                                        modelState.value = id
+                                        s.setModel(provider, id)
+                                        modelMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        "Tipp: Vorschlag über ▾ wählen oder eigenen Modellnamen eintippen, falls der Anbieter ein neues Modell anbietet.",
+                        style = MaterialTheme.typography.bodySmall
                     )
                     val (linkText, url) = when (provider) {
                         AiProvider.OPENAI -> "Schlüssel bei OpenAI erstellen" to "https://platform.openai.com/api-keys"
@@ -124,6 +160,7 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     value = sender, onValueChange = { sender = it; s.senderInfo = it },
                     label = { Text("Name, Adresse, Telefon, E-Mail") },
                     minLines = 3,
+                    supportingText = { if (sender.isNotBlank()) SavedHint("Gespeichert") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
@@ -133,7 +170,25 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
             }
         }
 
-        Button(onClick = { saveAll() }, modifier = Modifier.fillMaxWidth()) { Text("Alles speichern (geschieht auch automatisch)") }
+        Text(
+            "Alle Eingaben werden sofort automatisch gespeichert.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** Grüner Haken mit kurzem Hinweis, dass die Eingabe gespeichert ist. */
+@Composable
+private fun SavedHint(text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            Icons.Filled.CheckCircle, null,
+            tint = Color(0xFF2E7D32),
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall, color = Color(0xFF2E7D32))
     }
 }
