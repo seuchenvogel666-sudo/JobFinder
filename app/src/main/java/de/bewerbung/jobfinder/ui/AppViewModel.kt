@@ -110,6 +110,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         placeText = p.name
         placeSuggestions = emptyList()
         placeMenuOpen = false
+        // PLZ-Einträge haben noch keine Koordinaten – im Hintergrund nachschlagen
+        if (p.lat.isNaN()) {
+            viewModelScope.launch {
+                val resolved = withContext(Dispatchers.IO) { GeoRepository.resolve(p) }
+                if (selectedPlace == p) selectedPlace = resolved
+            }
+        }
     }
 
     fun sortedJobs(): List<Job> = when (sortMode) {
@@ -137,6 +144,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         hasSearched = true
         viewModelScope.launch {
             var place = selectedPlace
+            if (place != null && place.lat.isNaN()) {
+                val p0 = place
+                place = withContext(Dispatchers.IO) { GeoRepository.resolve(p0) }
+                selectedPlace = place
+            }
             if (place == null && placeText.isNotBlank()) {
                 place = withContext(Dispatchers.IO) {
                     runCatching { GeoRepository.searchPlaces(placeText.trim()).firstOrNull() }.getOrNull()

@@ -19,13 +19,43 @@ object GeoRepository {
     fun searchPlaces(text: String): List<Place> {
         val q = text.trim()
         if (q.isBlank()) return emptyList()
-        val isPostcode = q.first().isDigit()
-        return if (isPostcode) {
-            // Postleitzahl: ohne Ortstyp-Filter suchen und nach PLZ + Ort gruppieren
-            query(q, "", postcodeMode = true)
+        return if (q.first().isDigit()) {
+            // Postleitzahl: amtliches PLZ-Verzeichnis (OpenPLZ), auch für Teil-Eingaben wie "101"
+            runCatching { searchPostcodes(q) }.getOrDefault(emptyList())
+                .ifEmpty { query(q, "", postcodeMode = true) }
         } else {
             query(q, "&osm_tag=place", postcodeMode = false).ifEmpty { query(q, "", postcodeMode = false) }
         }
+    }
+
+    /** Sucht PLZ über openplzapi.org (nur Deutschland). Koordinaten werden erst bei Auswahl ermittelt. */
+    private fun searchPostcodes(prefix: String): List<Place> {
+        val digits = prefix.filter { it.isDigit() }.take(5)
+        if (digits.isEmpty()) return emptyList()
+        val url = "https://openplzapi.org/de/Localities?postalCode=${Http.enc("^$digits")}&page=1&pageSize=30"
+        val arr = org.json.JSONArray(Http.get(url))
+        val result = mutableListOf<Place>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val plz = o.optString("postalCode")
+            val ort = o.optString("name")
+            if (plz.isBlank() || ort.isBlank()) continue
+            val district = o.optJSONObject("district")?.optString("name") ?: ""
+            val state = o.optJSONObject("federalState")?.optString("name") ?: ""
+            val detail = listOf(district.takeIf { it != ort } ?: "", state).filter { it.isNotBlank() }.joinToString(", ")
+            result += Place("$plz $ort", detail, Double.NaN, Double.NaN)
+        }
+        return result.distinctBy { it.name }.sortedBy { it.name }.take(12)
+    }
+
+    /** Ermittelt die Koordinaten für einen PLZ-Eintrag (nötig für die Entfernungsberechnung). */
+    fun resolve(place: Place): Place {
+        if (!place.lat.isNaN()) return place
+        val plz = place.name.substringBefore(" ")
+        val ort = place.name.substringAfter(" ")
+        val hit = runCatching { query("$plz $ort", "", postcodeMode = true).firstOrNull() }.getOrNull()
+            ?: runCatching { query(ort, "&osm_tag=place", postcodeMode = false).firstOrNull() }.getOrNull()
+        return if (hit != null) place.copy(lat = hit.lat, lon = hit.lon) else place
     }
 
     private fun query(text: String, filter: String, postcodeMode: Boolean): List<Place> {
@@ -44,8 +74,9 @@ object GeoRepository {
             val city = props.optString("city").ifBlank { props.optString("name") }
             val state = props.optString("state")
             if (postcodeMode) {
-                if (postcode.isBlank() || !postcode.startsWith(text.take(5))) continue
-                result += Place(city, listOf(postcode, state).filter { it.isNotBlank() }.joinToString(", "),
+                val digits = text.filter { it.isDigit() }.take(5)
+                if (postcode.isBlank() || !postcode.startsWith(digits)) continue
+                result += Place("$postcode $city", listOf(state).filter { it.isNotBlank() }.joinToString(", "),
                     coords.getDouble(1), coords.getDouble(0))
             } else {
                 val name = props.optString("name")

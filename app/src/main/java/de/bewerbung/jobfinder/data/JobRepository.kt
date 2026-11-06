@@ -49,10 +49,11 @@ class JobRepository(context: Context) {
         }
 
         // Orte ohne Koordinaten (Webportale) nachschlagen, damit nach Entfernung sortiert werden kann
-        val withCoords = if (place != null && !radius.remote) geocodeMissing(all) else all
+        val refPlace = place?.takeIf { !it.lat.isNaN() }
+        val withCoords = if (refPlace != null && !radius.remote) geocodeMissing(all) else all
         val withDistance = withCoords.map { job ->
-            if (place != null && job.lat != null && job.lon != null) {
-                job.copy(distanceKm = GeoRepository.distanceKm(place.lat, place.lon, job.lat, job.lon))
+            if (refPlace != null && job.lat != null && job.lon != null) {
+                job.copy(distanceKm = GeoRepository.distanceKm(refPlace.lat, refPlace.lon, job.lat, job.lon))
             } else job
         }
 
