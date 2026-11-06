@@ -60,7 +60,7 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
         s.adzunaAppId = adzId
         s.adzunaAppKey = adzKey
         s.joobleKey = jooble
-        vm.toast = "Einstellungen gespeichert"
+        vm.toast = "Einstellungen gespeichert ✓"
     }
 
     Column(
@@ -79,20 +79,29 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     AiProvider.entries.forEach { p ->
-                        FilterChip(selected = provider == p, onClick = { provider = p }, label = { Text(p.label) })
+                        FilterChip(selected = provider == p, onClick = { provider = p; s.aiProvider = p }, label = { Text(p.label) })
                     }
                 }
                 if (provider != AiProvider.NONE) {
                     val keyState = keys.getValue(provider)
                     val modelState = models.getValue(provider)
                     OutlinedTextField(
-                        value = keyState.value, onValueChange = { keyState.value = it },
+                        value = keyState.value,
+                        onValueChange = { keyState.value = it; s.setApiKey(provider, it) },
                         label = { Text("API-Schlüssel") }, singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
+                        supportingText = {
+                            val saved = keyState.value.replace(Regex("\\s"), "")
+                            Text(
+                                if (saved.isBlank()) "Noch kein Schlüssel gespeichert"
+                                else "✓ Gespeichert (endet auf …${saved.takeLast(4)})"
+                            )
+                        },
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
-                        value = modelState.value, onValueChange = { modelState.value = it },
+                        value = modelState.value,
+                        onValueChange = { modelState.value = it; s.setModel(provider, it) },
                         label = { Text("Modell") }, singleLine = true,
                         supportingText = { Text("Standard: ${SettingsStore.defaultModel(provider)} – nur ändern, wenn der Anbieter das Modell umbenennt") },
                         modifier = Modifier.fillMaxWidth()
@@ -118,7 +127,7 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Meine Absenderdaten (optional)", style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(
-                    value = sender, onValueChange = { sender = it },
+                    value = sender, onValueChange = { sender = it; s.senderInfo = it },
                     label = { Text("Name, Adresse, Telefon, E-Mail") },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth()
@@ -140,11 +149,11 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     style = MaterialTheme.typography.bodySmall
                 )
                 OutlinedTextField(
-                    value = adzId, onValueChange = { adzId = it },
+                    value = adzId, onValueChange = { adzId = it; s.adzunaAppId = it },
                     label = { Text("Adzuna App-ID") }, singleLine = true, modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = adzKey, onValueChange = { adzKey = it },
+                    value = adzKey, onValueChange = { adzKey = it; s.adzunaAppKey = it },
                     label = { Text("Adzuna App-Key") }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()
                 )
@@ -152,7 +161,7 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     Text("Adzuna-Schlüssel beantragen")
                 }
                 OutlinedTextField(
-                    value = jooble, onValueChange = { jooble = it },
+                    value = jooble, onValueChange = { jooble = it; s.joobleKey = it },
                     label = { Text("Jooble API-Key") }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()
                 )
@@ -162,7 +171,7 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
             }
         }
 
-        Button(onClick = { saveAll() }, modifier = Modifier.fillMaxWidth()) { Text("Einstellungen speichern") }
+        Button(onClick = { saveAll() }, modifier = Modifier.fillMaxWidth()) { Text("Alles speichern (geschieht auch automatisch)") }
         Spacer(Modifier.height(24.dp))
     }
 }
