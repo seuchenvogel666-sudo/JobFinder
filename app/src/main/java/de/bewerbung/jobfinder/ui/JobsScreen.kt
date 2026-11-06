@@ -57,12 +57,20 @@ import androidx.compose.ui.unit.dp
 import de.bewerbung.jobfinder.data.Job
 import de.bewerbung.jobfinder.data.PortalLinks
 import de.bewerbung.jobfinder.data.SortMode
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedButton
+import de.bewerbung.jobfinder.data.RadiusOption
+import de.bewerbung.jobfinder.data.WebSite
 
 @Composable
 fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     val focus = LocalFocusManager.current
     var showNotes by remember { mutableStateOf(false) }
+    var radiusMenu by remember { mutableStateOf(false) }
     val sorted = vm.sortedJobs()
     val listState = rememberLazyListState()
 
@@ -96,22 +104,36 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                             label = { Text("Ort / PLZ") },
                             leadingIcon = { Icon(Icons.Filled.Place, null) },
                             singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { focus.clearFocus(); vm.search() }),
                             modifier = Modifier.weight(1f)
                         )
                         Spacer(Modifier.width(8.dp))
-                        OutlinedTextField(
-                            value = vm.radius,
-                            onValueChange = { v -> vm.radius = v.filter { it.isDigit() }.take(3) },
-                            label = { Text("km") },
-                            leadingIcon = { Icon(Icons.Filled.Straighten, null) },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Number,
-                                imeAction = ImeAction.Search
-                            ),
-                            keyboardActions = KeyboardActions(onSearch = { focus.clearFocus(); vm.search() }),
-                            modifier = Modifier.width(110.dp)
+                        // Feste Umkreis-Auswahl (aufklappbar)
+                        Box {
+                            OutlinedButton(
+                                onClick = { radiusMenu = true },
+                                modifier = Modifier.padding(top = 8.dp).height(56.dp)
+                            ) {
+                                Icon(Icons.Filled.Straighten, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(if (vm.radius.remote) "Remote" else vm.radius.label)
+                                Icon(Icons.Filled.ArrowDropDown, null)
+                            }
+                            DropdownMenu(expanded = radiusMenu, onDismissRequest = { radiusMenu = false }) {
+                                RadiusOption.entries.forEach { r ->
+                                    DropdownMenuItem(
+                                        text = { Text(r.label) },
+                                        onClick = { vm.radius = r; radiusMenu = false }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (vm.radius.remote) {
+                        Text(
+                            "Remote: Es werden bundesweit Stellen mit Homeoffice/Remote gesucht – der Ort ist optional.",
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                     // Ortsvorschläge
@@ -139,6 +161,20 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                         )
                     }
 
+                    Text("Quellen:", style = MaterialTheme.typography.labelLarge)
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FilterChip(selected = true, onClick = {}, label = { Text("Arbeitsagentur") })
+                        WebSite.entries.forEach { site ->
+                            FilterChip(
+                                selected = site in vm.webSources,
+                                onClick = { vm.toggleWebSource(site) },
+                                label = { Text(site.label) }
+                            )
+                        }
+                    }
                     Text("Anzeigen nicht älter als:", style = MaterialTheme.typography.labelLarge)
                     Row(
                         Modifier.horizontalScroll(rememberScrollState()),
@@ -230,10 +266,10 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
         } else {
             item {
                 Text(
-                    "Gib einen Beruf oder ein Suchwort, einen Ort und die Entfernung ein. " +
-                            "Durchsucht werden die Jobbörse der Arbeitsagentur sowie – mit kostenlosem " +
-                            "Schlüssel in den Einstellungen – Adzuna und Jooble, die Anzeigen vieler " +
-                            "weiterer Jobbörsen bündeln.",
+                    "Gib einen Beruf oder ein Suchwort, einen Ort und den Umkreis ein. " +
+                            "Durchsucht werden die Jobbörse der Arbeitsagentur sowie die öffentlichen " +
+                            "Suchseiten von LinkedIn, XING, Indeed und StepStone. Die Suche dauert " +
+                            "dadurch etwa 10–20 Sekunden.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -247,14 +283,14 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
             item {
                 Column {
                 Text(
-                    "Weitere Stellen direkt bei den großen Portalen (öffnet den Browser):",
+                    "Suche direkt auf der Seite öffnen (falls eine Quelle blockiert hat):",
                     style = MaterialTheme.typography.labelMedium
                 )
                 Row(
                     Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    PortalLinks.all(vm.query, vm.placeText, vm.radius.toIntOrNull() ?: 25).forEach { (name, url) ->
+                    PortalLinks.all(vm.jobsRepo.web, vm.query, vm.placeText, vm.radius).forEach { (name, url) ->
                         AssistChip(
                             onClick = { openUrl(ctx, url) },
                             label = { Text(name) },

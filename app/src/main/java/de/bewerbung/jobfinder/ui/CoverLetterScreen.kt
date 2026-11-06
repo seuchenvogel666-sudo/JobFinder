@@ -2,6 +2,8 @@
 
 package de.bewerbung.jobfinder.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
@@ -61,6 +64,9 @@ fun CoverLetterScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     var cvMenu by remember { mutableStateOf(false) }
     var showPaste by remember { mutableStateOf(false) }
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.importFile(uri, forCoverLetter = true)
+    }
     val configured = vm.ai.isConfigured()
 
     Scaffold(
@@ -130,7 +136,7 @@ fun CoverLetterScreen(vm: AppViewModel) {
             Text("2. Meine Unterlagen", style = MaterialTheme.typography.titleMedium)
             if (vm.documents.isEmpty()) {
                 Text(
-                    "Noch keine Unterlagen vorhanden – bitte zuerst unter „Unterlagen“ den Lebenslauf importieren.",
+                    "Noch keine Unterlagen vorhanden – Lebenslauf unten als PDF/Datei hinzufügen.",
                     color = MaterialTheme.colorScheme.error
                 )
             } else {
@@ -168,6 +174,26 @@ fun CoverLetterScreen(vm: AppViewModel) {
                     }
                 }
             }
+            OutlinedButton(
+                onClick = {
+                    fileLauncher.launch(
+                        arrayOf(
+                            "application/pdf", "image/*", "text/plain",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Filled.AttachFile, null)
+                Spacer(Modifier.width(6.dp))
+                Text("PDF/Datei hinzufügen (Zeugnis, Weiterbildung …)")
+            }
+            Text(
+                "Lebenslauf, Zwischenzeugnisse, Zeugnisse und Weiterbildungen werden zusammengefasst; " +
+                        "Zeugnis-Aussagen fließen nur sinngemäß und in angemessenem Rahmen ein.",
+                style = MaterialTheme.typography.bodySmall
+            )
             OutlinedTextField(
                 value = vm.clNotes, onValueChange = { vm.clNotes = it },
                 label = { Text("Optional: Wünsche (z. B. „Eintritt ab 01.03.“, „Teilzeit“)") },
@@ -270,6 +296,15 @@ fun CoverLetterScreen(vm: AppViewModel) {
                         Spacer(Modifier.width(6.dp))
                         Text("Speichern")
                     }
+                }
+                Button(
+                    onClick = { vm.openApply(vm.clJob) },
+                    enabled = vm.clResult.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Send, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Jetzt direkt bewerben")
                 }
             }
             Spacer(Modifier.height(40.dp))

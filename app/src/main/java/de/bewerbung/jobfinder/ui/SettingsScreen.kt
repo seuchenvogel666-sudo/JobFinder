@@ -46,9 +46,6 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
         }
     }
     var sender by remember { mutableStateOf(s.senderInfo) }
-    var adzId by remember { mutableStateOf(s.adzunaAppId) }
-    var adzKey by remember { mutableStateOf(s.adzunaAppKey) }
-    var jooble by remember { mutableStateOf(s.joobleKey) }
 
     fun saveAll() {
         s.aiProvider = provider
@@ -57,9 +54,6 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
             s.setModel(p, models.getValue(p).value)
         }
         s.senderInfo = sender
-        s.adzunaAppId = adzId
-        s.adzunaAppKey = adzKey
-        s.joobleKey = jooble
         vm.toast = "Einstellungen gespeichert ✓"
     }
 
@@ -136,38 +130,6 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     "Wird im Briefkopf des Anschreibens verwendet. Leer lassen = aus dem Lebenslauf übernehmen.",
                     style = MaterialTheme.typography.bodySmall
                 )
-            }
-        }
-
-        // ---------- Jobquellen ----------
-        Card {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Weitere Stellenquellen (kostenlos)", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Die Jobbörse der Arbeitsagentur ist immer aktiv. Adzuna und Jooble bündeln zusätzlich Anzeigen " +
-                            "vieler anderer Jobbörsen. Dafür braucht es je einen kostenlosen Schlüssel.",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                OutlinedTextField(
-                    value = adzId, onValueChange = { adzId = it; s.adzunaAppId = it },
-                    label = { Text("Adzuna App-ID") }, singleLine = true, modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = adzKey, onValueChange = { adzKey = it; s.adzunaAppKey = it },
-                    label = { Text("Adzuna App-Key") }, singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()
-                )
-                TextButton(onClick = { openUrl(ctx, "https://developer.adzuna.com/signup") }) {
-                    Text("Adzuna-Schlüssel beantragen")
-                }
-                OutlinedTextField(
-                    value = jooble, onValueChange = { jooble = it; s.joobleKey = it },
-                    label = { Text("Jooble API-Key") }, singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()
-                )
-                TextButton(onClick = { openUrl(ctx, "https://de.jooble.org/api/about") }) {
-                    Text("Jooble-Schlüssel beantragen")
-                }
             }
         }
 

@@ -20,8 +20,17 @@ Regeln:
 - Beziehe dich ausdrücklich auf 2–4 zentrale Anforderungen oder Aufgaben aus der Anzeige
   und stelle jeweils die passende Parallele zu konkreten Erfahrungen, Tätigkeiten oder
   Erfolgen aus dem Lebenslauf her.
-- Erfinde NICHTS. Nutze nur Fakten aus dem Lebenslauf. Fehlende Angaben (z. B. Adresse,
+- Erfinde NICHTS. Nutze nur Fakten aus den mitgelieferten Unterlagen (Lebenslauf,
+  Zwischenzeugnisse, Arbeitszeugnisse, Weiterbildungen). Fehlende Angaben (z. B. Adresse,
   Ansprechpartner, Eintrittstermin) setzt du als [Platzhalter] in eckigen Klammern.
+- Zwischenzeugnisse und Arbeitszeugnisse: Greife in angemessenem Rahmen 1–2 konkrete
+  Stärken oder Leistungen daraus auf, die zur Stelle passen, sinngemäß und in eigenen
+  Worten (z. B. "Meine Vorgesetzten schätzen insbesondere meine ..."). Zitiere keine
+  Zeugnisformeln wörtlich, nenne keine Noten und erwähne nicht, dass ein Zwischenzeugnis
+  vorliegt bzw. warum. Ein ungekündigtes Arbeitsverhältnis wird nicht thematisiert.
+- Weiterbildungen und Zertifikate: Nenne nur die für die Stelle relevanten, kurz und
+  mit Nutzen für die Aufgabe.
+- Fasse Informationen aus allen Unterlagen zusammen, ohne Doppelungen.
 - Keine Floskeln wie "hiermit bewerbe ich mich", keine Übertreibungen, keine Wiederholung
   des kompletten Lebenslaufs.
 - Ausgabe nur als reiner Text ohne Markdown, ohne Erklärungen davor oder danach.
@@ -44,8 +53,8 @@ Regeln:
             appendLine("Unternehmen: $company")
             appendLine(adText.take(12_000))
             appendLine()
-            appendLine("=== MEIN LEBENSLAUF / MEINE UNTERLAGEN ===")
-            appendLine(cv.take(20_000))
+            appendLine("=== MEINE UNTERLAGEN (Lebenslauf, Zeugnisse, Weiterbildungen) ===")
+            appendLine(cv.take(30_000))
             if (sender.isNotBlank()) {
                 appendLine()
                 appendLine("=== MEINE ABSENDERDATEN ===")

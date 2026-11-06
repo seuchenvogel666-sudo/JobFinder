@@ -21,29 +21,26 @@ class SettingsStore(context: Context) {
     fun setModel(provider: AiProvider, model: String) =
         p.edit().putString("model_${provider.name}", model.trim()).apply()
 
-    var adzunaAppId: String
-        get() = p.getString("adzunaAppId", "") ?: ""
-        set(v) = p.edit().putString("adzunaAppId", v.trim()).apply()
-
-    var adzunaAppKey: String
-        get() = p.getString("adzunaAppKey", "") ?: ""
-        set(v) = p.edit().putString("adzunaAppKey", v.trim()).apply()
-
-    var joobleKey: String
-        get() = p.getString("joobleKey", "") ?: ""
-        set(v) = p.edit().putString("joobleKey", v.trim()).apply()
-
     var senderInfo: String
         get() = p.getString("senderInfo", "") ?: ""
         set(v) = p.edit().putString("senderInfo", v).apply()
+
+    /** Aktivierte Jobportale (Standard: alle). */
+    var webSources: Set<WebSite>
+        get() {
+            val raw = p.getStringSet("webSources", null) ?: return WebSite.entries.toSet()
+            return raw.mapNotNull { n -> WebSite.entries.firstOrNull { it.name == n } }.toSet()
+        }
+        set(v) = p.edit().putStringSet("webSources", v.map { it.name }.toSet()).apply()
 
     // Letzte Suche merken
     var lastQuery: String
         get() = p.getString("lastQuery", "") ?: ""
         set(v) = p.edit().putString("lastQuery", v).apply()
-    var lastRadius: String
-        get() = p.getString("lastRadius", "25") ?: "25"
-        set(v) = p.edit().putString("lastRadius", v).apply()
+    var lastRadius: RadiusOption
+        get() = RadiusOption.entries.firstOrNull { it.name == p.getString("lastRadiusOption", "") }
+            ?: RadiusOption.KM25
+        set(v) = p.edit().putString("lastRadiusOption", v.name).apply()
     var lastPlace: String
         get() = p.getString("lastPlace", "") ?: ""
         set(v) = p.edit().putString("lastPlace", v).apply()

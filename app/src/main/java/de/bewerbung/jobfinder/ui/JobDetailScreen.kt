@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -81,18 +82,23 @@ fun JobDetailScreen(vm: AppViewModel, job: Job) {
                 Spacer(Modifier.width(8.dp))
                 Text("Passendes Anschreiben erstellen")
             }
+            Button(onClick = { vm.openApply(job) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Send, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Direkt bewerben (Bewerbungsmappe)")
+            }
             OutlinedButton(onClick = { openUrl(ctx, job.url) }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.Public, null)
                 Spacer(Modifier.width(8.dp))
-                Text("Originalanzeige öffnen / bewerben")
+                Text("Originalanzeige öffnen")
             }
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             Row {
                 Text("Anzeigentext", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                if (job.baRefnr == null && job.url.isNotBlank()) {
-                    TextButton(onClick = { vm.loadDescription(job, fromWeb = true) }, enabled = !loading) {
-                        Text("Volltext laden")
+                if (job.url.isNotBlank()) {
+                    TextButton(onClick = { vm.loadDescription(job, force = true) }, enabled = !loading) {
+                        Text("Neu laden")
                     }
                 }
             }

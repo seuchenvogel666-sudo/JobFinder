@@ -34,11 +34,34 @@ enum class SortMode(val label: String) {
     DATE("Alter der Anzeige")
 }
 
+/** Feste Umkreis-Auswahl. */
+enum class RadiusOption(val label: String, val km: Int, val remote: Boolean) {
+    REMOTE("Remote / Homeoffice", 0, true),
+    KM25("25 km", 25, false),
+    KM50("50 km", 50, false),
+    KM100("100 km", 100, false)
+}
+
+/** Jobportale, deren öffentliche Suchseiten ausgelesen werden. */
+enum class WebSite(val label: String) {
+    LINKEDIN("LinkedIn"),
+    XING("XING"),
+    INDEED("Indeed"),
+    STEPSTONE("StepStone")
+}
+
 enum class DocType(val label: String) {
     LEBENSLAUF("Lebenslauf"),
     ANSCHREIBEN("Anschreiben"),
-    ZEUGNIS("Zeugnis"),
-    SONSTIGES("Sonstiges")
+    ZWISCHENZEUGNIS("Zwischenzeugnis"),
+    ZEUGNIS("Arbeitszeugnis"),
+    WEITERBILDUNG("Weiterbildung"),
+    SONSTIGES("Sonstiges");
+
+    companion object {
+        /** Typen, deren Inhalte ins Anschreiben einfließen dürfen. */
+        val supporting = setOf(ZWISCHENZEUGNIS, ZEUGNIS, WEITERBILDUNG)
+    }
 }
 
 data class AppDocument(
@@ -46,7 +69,9 @@ data class AppDocument(
     val title: String,
     val type: DocType,
     val text: String,
-    val updatedMillis: Long
+    val updatedMillis: Long,
+    /** Pfad zur Originaldatei (PDF/Bild) im App-Speicher, falls vorhanden. */
+    val originalPath: String? = null
 )
 
 enum class AiProvider(val label: String) {

@@ -12,19 +12,23 @@
 
 ## Funktionen
 **Stellen**
-- Suchwort/Beruf, Ort (mit Vorschlägen), Umkreis in km, Höchstalter der Anzeige
-- Quellen: Jobbörse der Arbeitsagentur (immer aktiv), Adzuna und Jooble (kostenlose Schlüssel
-  in den Einstellungen; bündeln Anzeigen vieler weiterer Jobbörsen)
+- Suchwort/Beruf, Ort (mit Vorschlägen), Umkreis als Auswahl: Remote, 25 km, 50 km, 100 km
+- Quellen: Jobbörse der Arbeitsagentur (Schnittstelle) sowie LinkedIn, XING, Indeed und StepStone
+  (öffentliche Suchseiten werden im Hintergrund wie im Browser geladen und ausgelesen)
 - Sortierung nach Entfernung oder Alter der Anzeige
-- Direkt-Links zu Indeed, LinkedIn, XING, StepStone mit den eingegebenen Suchwerten
-  (diese Portale haben keine freie Schnittstelle)
+- Falls ein Portal automatische Zugriffe blockiert: Suche direkt im Browser öffnen
 
 **Unterlagen**
 - Import von PDF, Bild, Word (.docx) und Text – Texterkennung direkt auf dem Handy
-- Foto/Scan mit dem Google-Dokumentenscanner (mehrere Seiten, automatisches Zuschneiden)
-- Bearbeiten, als PDF teilen/speichern
-- KI: Lebenslauf verbessern; Anschreiben passend zu einer Stelle (max. 1 DIN-A4-Seite, mit Seitenprüfung)
-- „Anschreiben für eigene Anzeige“: Anzeigentext z. B. aus LinkedIn einfügen
+- Typen: Lebenslauf, Anschreiben, Zwischenzeugnis, Arbeitszeugnis, Weiterbildung, Sonstiges
+- PDFs und Scans werden zusätzlich als Original gespeichert
+- KI: Lebenslauf verbessern; Anschreiben passend zur Stelle (max. 1 DIN-A4-Seite) aus Lebenslauf,
+  Zwischenzeugnissen, Zeugnissen und Weiterbildungen
+- Ohne API-Schlüssel: „An Chat-App senden“ (Claude, ChatGPT, Gemini) und Antwort einfügen
+
+**Direkt bewerben**
+- Bewerbungsmappe als ein PDF (Anschreiben, Lebenslauf, Nachweise im Original)
+- Per E-Mail an die Adresse aus der Anzeige oder speichern und auf der Bewerbungsseite hochladen
 
 ## KI einrichten
 Einstellungen → Anbieter wählen → API-Schlüssel eintragen → Speichern.

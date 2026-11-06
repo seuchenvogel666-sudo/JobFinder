@@ -134,6 +134,20 @@ fun DocEditScreen(vm: AppViewModel, docId: String) {
                     FilterChip(selected = type == t, onClick = { type = t }, label = { Text(t.label) })
                 }
             }
+            original.originalPath?.let { path ->
+                OutlinedButton(onClick = { PdfExport.viewFile(ctx, java.io.File(path)) }) {
+                    Icon(Icons.Filled.PictureAsPdf, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Original ansehen (wird für die Bewerbungsmappe genutzt)")
+                }
+            }
+            if (type in DocType.supporting) {
+                Text(
+                    "Inhalte dieses Dokuments fließen in angemessenem Rahmen in Anschreiben ein.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
             OutlinedTextField(
                 value = text, onValueChange = { text = it },
                 label = { Text("Inhalt") },

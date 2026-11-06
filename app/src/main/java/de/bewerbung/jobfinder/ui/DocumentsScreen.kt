@@ -117,7 +117,7 @@ fun DocumentsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Unterlagen digitalisieren", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Lebenslauf, Zeugnisse oder alte Anschreiben als Datei importieren oder abfotografieren. " +
+                        "Lebenslauf, Zwischenzeugnisse, Zeugnisse, Weiterbildungsnachweise oder alte Anschreiben als Datei (PDF) importieren oder abfotografieren. " +
                                 "Der Text wird erkannt und kann danach bearbeitet werden.",
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -204,7 +204,7 @@ private fun DocCard(doc: AppDocument, onClick: () -> Unit) {
     ) {
         Column(Modifier.padding(12.dp)) {
             Text(
-                doc.type.label.uppercase(),
+                doc.type.label.uppercase() + if (doc.originalPath != null) "  ·  ORIGINAL-PDF" else "",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary
             )

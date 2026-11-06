@@ -75,6 +75,7 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
         is Screen.JobDetail -> JobDetailScreen(vm, s.job)
         is Screen.DocEdit -> DocEditScreen(vm, s.docId)
         Screen.CoverLetter -> CoverLetterScreen(vm)
+        Screen.Apply -> ApplyScreen(vm)
     }
 
     vm.busyMessage?.let { msg ->

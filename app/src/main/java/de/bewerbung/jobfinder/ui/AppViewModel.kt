@@ -18,27 +18,33 @@ import de.bewerbung.jobfinder.data.GeoRepository
 import de.bewerbung.jobfinder.data.Job
 import de.bewerbung.jobfinder.data.JobRepository
 import de.bewerbung.jobfinder.data.Place
+import de.bewerbung.jobfinder.data.RadiusOption
 import de.bewerbung.jobfinder.data.SettingsStore
 import de.bewerbung.jobfinder.data.SortMode
 import de.bewerbung.jobfinder.data.TextExtractor
+import de.bewerbung.jobfinder.data.WebSite
+import de.bewerbung.jobfinder.data.extractEmails
+import de.bewerbung.jobfinder.util.PdfExport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job as CoJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 sealed class Screen {
     data object Tabs : Screen()
     data class JobDetail(val job: Job) : Screen()
     data class DocEdit(val docId: String) : Screen()
     data object CoverLetter : Screen()
+    data object Apply : Screen()
 }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val settings = SettingsStore(app)
     private val store = DocumentStore(app)
-    private val jobsRepo = JobRepository(settings)
+    val jobsRepo = JobRepository(app)
     private val extractor = TextExtractor(app)
     val ai = AiClient(settings)
 
@@ -46,9 +52,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var screen by mutableStateOf<Screen>(Screen.Tabs)
     var tab by mutableIntStateOf(0)
 
+    /** Für "Zurück" aus dem Bewerben-Bildschirm. */
+    private var screenBeforeApply: Screen = Screen.Tabs
+
     fun back(): Boolean {
         if (screen == Screen.Tabs) return false
-        screen = Screen.Tabs
+        screen = if (screen == Screen.Apply) screenBeforeApply else Screen.Tabs
         return true
     }
 
@@ -60,12 +69,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var placeSuggestions by mutableStateOf<List<Place>>(emptyList())
     var sortMode by mutableStateOf(SortMode.DATE)
     var maxAgeDays by mutableIntStateOf(0)
+    var webSources by mutableStateOf(settings.webSources)
     var jobs by mutableStateOf<List<Job>>(emptyList())
     var searchNotes by mutableStateOf<List<String>>(emptyList())
     var searching by mutableStateOf(false)
     var hasSearched by mutableStateOf(false)
 
     private var placeJob: CoJob? = null
+
+    fun toggleWebSource(site: WebSite) {
+        webSources = if (site in webSources) webSources - site else webSources + site
+        settings.webSources = webSources
+    }
 
     fun onPlaceTextChange(text: String) {
         placeText = text
@@ -113,7 +128,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         searching = true
         hasSearched = true
         viewModelScope.launch {
-            // Wurde kein Vorschlag angeklickt, nehmen wir den ersten Treffer für die Entfernung
             var place = selectedPlace
             if (place == null && placeText.isNotBlank()) {
                 place = withContext(Dispatchers.IO) {
@@ -126,8 +140,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     query = query.trim(),
                     placeText = place?.name ?: placeText.trim(),
                     place = place,
-                    radiusKm = radius.toIntOrNull() ?: 25,
-                    maxAgeDays = maxAgeDays
+                    radius = radius,
+                    maxAgeDays = maxAgeDays,
+                    sites = webSources
                 )
             }
             r.onSuccess {
@@ -145,17 +160,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val descriptions = mutableStateMapOf<String, String>()
     val descriptionLoading = mutableStateMapOf<String, Boolean>()
 
-    fun loadDescription(job: Job, fromWeb: Boolean = false) {
+    fun loadDescription(job: Job, force: Boolean = false) {
         if (descriptionLoading[job.id] == true) return
-        if (!fromWeb && descriptions.containsKey(job.id)) return
+        if (!force && descriptions.containsKey(job.id)) return
         descriptionLoading[job.id] = true
         viewModelScope.launch {
             val text = runCatching {
-                when {
-                    fromWeb -> jobsRepo.loadWebPageText(job.url)
-                    job.baRefnr != null -> jobsRepo.loadBaDescription(job.baRefnr)
-                    else -> job.snippet
-                }
+                if (job.baRefnr != null) jobsRepo.loadBaDescription(job.baRefnr)
+                else jobsRepo.loadWebPageText(job.url)
             }.getOrElse { "Anzeigentext konnte nicht geladen werden (${it.message}).\n\n${job.snippet}" }
             descriptions[job.id] = text.ifBlank { job.snippet }
             descriptionLoading[job.id] = false
@@ -184,26 +196,52 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         screen = Screen.DocEdit(d.id)
     }
 
-    /** Datei (PDF, Bild, Word, Text) importieren. */
-    fun importFile(uri: Uri) {
+    /**
+     * Datei (PDF, Bild, Word, Text) importieren. PDFs und Bilder werden zusätzlich als Original
+     * gespeichert (für die Bewerbungsmappe). Mit [forCoverLetter] wird das Dokument direkt fürs
+     * Anschreiben ausgewählt, statt den Editor zu öffnen.
+     */
+    fun importFile(uri: Uri, forCoverLetter: Boolean = false) {
         busyMessage = "Dokument wird gelesen …"
         viewModelScope.launch {
             val r = runCatching {
-                val name = extractor.displayName(uri).substringBeforeLast('.')
+                val name = extractor.displayName(uri)
                 val text = extractor.extract(uri)
-                name to text
+                val id = DocumentStore.newId()
+                val original = withContext(Dispatchers.IO) { copyOriginal(uri, name, id) }
+                Triple(name.substringBeforeLast('.'), text, original) to id
             }
             busyMessage = null
-            r.onSuccess { (name, text) -> createFromText(name, text) }
+            r.onSuccess { (t, id) -> createFromText(t.first, t.second, t.third, id, forCoverLetter) }
                 .onFailure { toast = "Import fehlgeschlagen: ${it.message}" }
         }
     }
 
+    private fun copyOriginal(uri: Uri, name: String, id: String): String? {
+        val lower = name.lowercase()
+        val mime = getApplication<Application>().contentResolver.getType(uri) ?: ""
+        val ext = when {
+            mime == "application/pdf" || lower.endsWith(".pdf") -> "pdf"
+            mime.startsWith("image/") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") -> null
+            else -> return null
+        }
+        val out = File(store.originalsDir, "$id.pdf")
+        if (ext == "pdf") {
+            getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
+                out.outputStream().use { input.copyTo(it) }
+            } ?: return null
+        } else {
+            PdfExport.imagesToPdf(getApplication<Application>(), listOf(uri), out)
+        }
+        return out.absolutePath
+    }
+
     /** Fotos/Scans (eine oder mehrere Seiten) per Texterkennung einlesen. */
-    fun importImages(uris: List<Uri>) {
+    fun importImages(uris: List<Uri>, forCoverLetter: Boolean = false) {
         if (uris.isEmpty()) return
         busyMessage = "Texterkennung läuft …"
         viewModelScope.launch {
+            val id = DocumentStore.newId()
             val r = runCatching {
                 withContext(Dispatchers.IO) {
                     val sb = StringBuilder()
@@ -211,26 +249,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         if (sb.isNotEmpty()) sb.append("\n\n")
                         sb.append(extractor.ocrUri(u))
                     }
-                    sb.toString()
+                    val out = File(store.originalsDir, "$id.pdf")
+                    val original = runCatching { PdfExport.imagesToPdf(getApplication<Application>(), uris, out); out.absolutePath }
+                        .getOrNull()
+                    sb.toString() to original
                 }
             }
             busyMessage = null
-            r.onSuccess { createFromText("Scan", it) }
+            r.onSuccess { (text, original) -> createFromText("Scan", text, original, id, forCoverLetter) }
                 .onFailure { toast = "Texterkennung fehlgeschlagen: ${it.message}" }
         }
     }
 
-    private fun createFromText(name: String, text: String) {
-        if (text.isBlank()) {
+    private fun createFromText(name: String, text: String, original: String?, id: String, forCoverLetter: Boolean) {
+        if (text.isBlank() && original == null) {
             toast = "Im Dokument wurde kein Text erkannt."
             return
         }
         val type = DocumentStore.guessType(text)
         val title = if (name == "Scan" || name.isBlank()) type.label else name
-        val d = AppDocument(DocumentStore.newId(), title, type, text, System.currentTimeMillis())
+        val d = AppDocument(id, title, type, text, System.currentTimeMillis(), original)
         saveDoc(d)
-        screen = Screen.DocEdit(d.id)
-        toast = "Dokument erstellt – bitte Text kurz prüfen."
+        if (forCoverLetter) {
+            if (type == DocType.LEBENSLAUF && clCvId == null) clCvId = id else clExtraDocIds = clExtraDocIds + id
+            toast = "„$title“ (${type.label}) hinzugefügt und ausgewählt."
+        } else {
+            screen = Screen.DocEdit(d.id)
+            toast = "Dokument erstellt – bitte Text und Typ kurz prüfen."
+        }
     }
 
     // ---------- KI: Lebenslauf verbessern ----------
@@ -260,14 +306,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var clNotes by mutableStateOf("")
     var clResult by mutableStateOf("")
     var clBusy by mutableStateOf(false)
+    var clLoadingAd by mutableStateOf(false)
 
     fun openCoverLetter(job: Job?) {
         clJob = job
         clTitle = job?.title ?: ""
         clCompany = job?.company ?: ""
         clAdText = job?.let { descriptions[it.id] ?: it.snippet } ?: ""
-        clCvId = documents.firstOrNull { it.type == DocType.LEBENSLAUF }?.id ?: documents.firstOrNull()?.id
-        clExtraDocIds = emptySet()
+        clCvId = documents.firstOrNull { it.type == DocType.LEBENSLAUF }?.id
+        // Zwischenzeugnisse, Zeugnisse und Weiterbildungen standardmäßig mit einbeziehen
+        clExtraDocIds = documents.filter { it.type in DocType.supporting }.map { it.id }.toSet()
         clNotes = ""
         clResult = ""
         aiError = null
@@ -275,8 +323,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (job != null && !descriptions.containsKey(job.id)) {
             loadDescription(job)
             viewModelScope.launch {
-                // Text übernehmen, sobald er geladen ist
-                repeat(40) {
+                repeat(80) {
                     delay(250)
                     val d = descriptions[job.id]
                     if (d != null) {
@@ -288,9 +335,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    var clLoadingAd by mutableStateOf(false)
-
-    /** Anzeigentext von der Originalseite holen (für Adzuna/Jooble/eigene Links). */
+    /** Anzeigentext von der Originalseite holen. */
     fun loadAdFromWeb() {
         val job = clJob ?: return
         if (job.url.isBlank()) return
@@ -299,20 +344,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 if (job.baRefnr != null) jobsRepo.loadBaDescription(job.baRefnr)
                 else jobsRepo.loadWebPageText(job.url)
-            }.onSuccess { if (it.isNotBlank()) clAdText = it }
+            }.onSuccess { if (it.isNotBlank()) { clAdText = it; descriptions[job.id] = it } }
                 .onFailure { toast = "Seite konnte nicht geladen werden – Anzeigentext bitte manuell einfügen." }
             clLoadingAd = false
         }
     }
 
+    /** Alle ausgewählten Unterlagen in sinnvoller Reihenfolge. */
+    private fun selectedSourceDocs(): List<AppDocument> {
+        val ids = listOfNotNull(clCvId) + clExtraDocIds.filter { it != clCvId }
+        return ids.mapNotNull { doc(it) }
+            .sortedBy { listOf(DocType.LEBENSLAUF, DocType.ZWISCHENZEUGNIS, DocType.ZEUGNIS, DocType.WEITERBILDUNG, DocType.SONSTIGES, DocType.ANSCHREIBEN).indexOf(it.type) }
+    }
+
     /** Baut die Anfrage (System + Nutzer) – oder null mit Fehlermeldung in aiError. */
     private fun coverLetterPromptParts(): Pair<String, String>? {
-        val cvParts = buildList {
-            clCvId?.let { id -> doc(id)?.let { add(it) } }
-            clExtraDocIds.filter { it != clCvId }.mapNotNull { doc(it) }.forEach { add(it) }
-        }
-        if (cvParts.isEmpty()) {
-            aiError = "Bitte zuerst unter \"Unterlagen\" einen Lebenslauf anlegen."
+        val parts = selectedSourceDocs().filter { it.text.isNotBlank() }
+        if (parts.isEmpty()) {
+            aiError = "Bitte zuerst einen Lebenslauf auswählen oder als Datei hinzufügen."
             return null
         }
         if (clAdText.isBlank() && clTitle.isBlank()) {
@@ -320,7 +369,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             return null
         }
         aiError = null
-        val cvText = cvParts.joinToString("\n\n") { "--- ${it.type.label}: ${it.title} ---\n${it.text}" }
+        val cvText = parts.joinToString("\n\n") { "--- ${it.type.label}: ${it.title} ---\n${it.text.take(12_000)}" }
         return Prompts.coverLetterSystem to
                 Prompts.coverLetterUser(clTitle, clCompany, clAdText, cvText, settings.senderInfo, clNotes)
     }
@@ -340,10 +389,110 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun saveCoverLetterAsDoc() {
-        if (clResult.isBlank()) return
+    fun saveCoverLetterAsDoc(): AppDocument? {
+        if (clResult.isBlank()) return null
         val title = "Anschreiben – ${clCompany.ifBlank { clTitle }}".take(80)
-        saveDoc(AppDocument(DocumentStore.newId(), title, DocType.ANSCHREIBEN, clResult, System.currentTimeMillis()))
+        val d = AppDocument(DocumentStore.newId(), title, DocType.ANSCHREIBEN, clResult, System.currentTimeMillis())
+        saveDoc(d)
         toast = "Anschreiben unter \"Unterlagen\" gespeichert."
+        return d
+    }
+
+    // ---------- Direkt bewerben ----------
+    var applyJob by mutableStateOf<Job?>(null)
+    var applyTitle by mutableStateOf("")
+    var applyCompany by mutableStateOf("")
+    var applyEmail by mutableStateOf("")
+    var applyEmails by mutableStateOf<List<String>>(emptyList())
+    var applyUrl by mutableStateOf("")
+    var applyLetterText by mutableStateOf("")
+    var applyDocIds by mutableStateOf<List<String>>(emptyList())
+
+    fun openApply(job: Job?) {
+        screenBeforeApply = screen
+        val j = job ?: clJob
+        applyJob = j
+        applyTitle = j?.title ?: clTitle
+        applyCompany = j?.company ?: clCompany
+        val adText = listOfNotNull(j?.let { descriptions[it.id] }, clAdText.takeIf { j == null || clJob?.id == j.id })
+            .joinToString("\n")
+        applyEmails = extractEmails(adText)
+        applyEmail = applyEmails.firstOrNull() ?: ""
+        applyUrl = Regex("Bewerbung: (https?://\\S+)").find(adText)?.groupValues?.get(1) ?: j?.url ?: ""
+        applyLetterText = if (clResult.isNotBlank() && (j == null || clJob?.id == j.id)) clResult else ""
+        // Standardauswahl: Lebenslauf + Zwischenzeugnisse/Zeugnisse/Weiterbildungen
+        val cv = clCvId?.let { doc(it) } ?: documents.firstOrNull { it.type == DocType.LEBENSLAUF }
+        val supporting = documents.filter { it.type in DocType.supporting }
+        applyDocIds = (listOfNotNull(cv) + supporting).map { it.id }
+        // Ohne aktuelles Anschreiben: passendes gespeichertes Anschreiben vorschlagen
+        if (applyLetterText.isBlank()) {
+            documents.firstOrNull {
+                it.type == DocType.ANSCHREIBEN && applyCompany.isNotBlank() && it.title.contains(applyCompany, true)
+            }?.let { applyDocIds = listOf(it.id) + applyDocIds }
+        }
+        screen = Screen.Apply
+    }
+
+    fun applicantName(): String {
+        settings.senderInfo.lines().firstOrNull { it.isNotBlank() }?.let { return it.trim() }
+        val cv = documents.firstOrNull { it.type == DocType.LEBENSLAUF }?.text ?: return ""
+        return cv.lines().map { it.trim() }.firstOrNull {
+            it.isNotBlank() && it.split(" ").size in 2..4 && !it.contains("lebenslauf", true) && it.none { c -> c.isDigit() }
+        } ?: ""
+    }
+
+    fun applyFileName(): String {
+        val name = applicantName().ifBlank { "Bewerbung" }
+        return PdfExport.safeName("Bewerbung ${name} ${applyCompany}".take(70)) + ".pdf"
+    }
+
+    fun applyEmailSubject(): String = "Bewerbung als ${applyTitle.ifBlank { "[Stelle]" }}" +
+            (applyJob?.baRefnr?.let { " – Referenznummer $it" } ?: "")
+
+    fun applyEmailBody(): String {
+        val name = applicantName().ifBlank { "[Ihr Name]" }
+        return "Sehr geehrte Damen und Herren,\n\n" +
+                "anbei sende ich Ihnen meine Bewerbungsunterlagen für die Stelle als " +
+                "${applyTitle.ifBlank { "[Stelle]" }}. Alle Unterlagen finden Sie in einer PDF-Datei " +
+                "(Anschreiben, Lebenslauf und Nachweise).\n\n" +
+                "Über eine Einladung zu einem persönlichen Gespräch freue ich mich.\n\n" +
+                "Mit freundlichen Grüßen\n$name"
+    }
+
+    /** Erstellt die Bewerbungsmappe (ein PDF) und ruft danach [onReady] auf dem Hauptthread auf. */
+    fun buildMappe(onReady: (File) -> Unit) {
+        val docs = applyDocIds.mapNotNull { doc(it) }
+        if (applyLetterText.isBlank() && docs.isEmpty()) {
+            toast = "Bitte mindestens ein Dokument auswählen."
+            return
+        }
+        busyMessage = "Bewerbungsmappe wird erstellt …"
+        viewModelScope.launch {
+            val r = runCatching {
+                withContext(Dispatchers.IO) {
+                    val pdf = android.graphics.pdf.PdfDocument()
+                    var page = 1
+                    if (applyLetterText.isNotBlank()) page = PdfExport.drawText(pdf, applyLetterText, page)
+                    for (d in docs) {
+                        val orig = d.originalPath?.let { File(it) }?.takeIf { it.exists() }
+                        // Lebenslauf und Anschreiben als bearbeiteten Text, Nachweise möglichst als Original
+                        val useOriginal = orig != null && (d.type !in setOf(DocType.LEBENSLAUF, DocType.ANSCHREIBEN) || d.text.isBlank())
+                        page = if (useOriginal) PdfExport.appendPdfFile(pdf, orig!!, page)
+                        else PdfExport.drawText(pdf, d.text, page)
+                    }
+                    val dir = File(getApplication<Application>().cacheDir, "pdf").apply { mkdirs() }
+                    val out = File(dir, applyFileName())
+                    out.outputStream().use { pdf.writeTo(it) }
+                    pdf.close()
+                    out
+                }
+            }
+            busyMessage = null
+            r.onSuccess { f ->
+                val mb = f.length() / 1_048_576.0
+                if (mb > 15) toast = "Hinweis: Die Mappe ist %.1f MB groß – für E-Mails evtl. zu groß.".format(mb)
+                onReady(f)
+            }.onFailure { toast = "Mappe konnte nicht erstellt werden: ${it.message}" }
+        }
     }
 }
