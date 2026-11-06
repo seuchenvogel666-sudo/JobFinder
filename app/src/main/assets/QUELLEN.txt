@@ -1,0 +1,1 @@
+Ortsdaten (orte.tsv, plz.tsv) basieren auf GeoNames (https://www.geonames.org), lizenziert unter CC BY 4.0, aufbereitet von zauberware/postal-codes-json-xml-csv, sowie auf plz_geocoord (WZB, Apache 2.0). Für die App zusammengefasst und gekürzt.

@@ -16,16 +16,34 @@ object GeoRepository {
     /** Rechteck um Deutschland (West, Süd, Ost, Nord). */
     private const val DE_BBOX = "5.86,47.27,15.05,55.06"
 
+    /** Wird beim App-Start gesetzt, damit das Offline-Ortsverzeichnis geladen werden kann. */
+    @Volatile var appContext: android.content.Context? = null
+
+    private fun offline(): Boolean {
+        if (!OfflineGeo.isLoaded) appContext?.let { runCatching { OfflineGeo.load(it) } }
+        return OfflineGeo.isLoaded
+    }
+
     fun searchPlaces(text: String): List<Place> {
         val q = text.trim()
         if (q.isBlank()) return emptyList()
-        return if (q.first().isDigit()) {
-            // Postleitzahl: amtliches PLZ-Verzeichnis (OpenPLZ), auch für Teil-Eingaben wie "101"
-            runCatching { searchPostcodes(q) }.getOrDefault(emptyList())
+        if (q.first().isDigit()) {
+            // Postleitzahl: Offline-Verzeichnis (schnell, auch Teil-Eingaben wie "101")
+            if (offline()) {
+                val list = OfflineGeo.suggestPlz(q).map { Place("${it.plz} ${it.name}", it.state, it.lat, it.lon) }
+                if (list.isNotEmpty()) return list
+            }
+            return runCatching { searchPostcodes(q) }.getOrDefault(emptyList())
                 .ifEmpty { query(q, "", postcodeMode = true) }
-        } else {
-            query(q, "&osm_tag=place", postcodeMode = false).ifEmpty { query(q, "", postcodeMode = false) }
         }
+        if (offline()) {
+            val list = OfflineGeo.suggestOrte(q).map {
+                val detail = (if (it.count > 1) "PLZ ${it.plz} u. a." else "PLZ ${it.plz}") + ", " + it.state
+                Place(it.name, detail, it.lat, it.lon)
+            }
+            if (list.isNotEmpty()) return list
+        }
+        return query(q, "&osm_tag=place", postcodeMode = false).ifEmpty { query(q, "", postcodeMode = false) }
     }
 
     /** Sucht PLZ über openplzapi.org (nur Deutschland). Koordinaten werden erst bei Auswahl ermittelt. */
@@ -48,15 +66,12 @@ object GeoRepository {
         return result.distinctBy { it.name }.sortedBy { it.name }.take(12)
     }
 
-    /** Ermittelt die Koordinaten für einen PLZ-Eintrag (nötig für die Entfernungsberechnung). */
+    /** Ermittelt die Koordinaten für einen PLZ- oder Ortseintrag (nötig für die Entfernungsberechnung). */
     fun resolve(place: Place): Place {
         if (!place.lat.isNaN()) return place
-        val plz = place.name.substringBefore(" ")
-        val ort = place.name.substringAfter(" ", "")
-        val hit = runCatching { query("$plz $ort", "", postcodeMode = true).firstOrNull() }.getOrNull()
-            ?: ort.takeIf { it.isNotBlank() }?.let { o ->
-                runCatching { query(o, "&osm_tag=place", postcodeMode = false).firstOrNull() }.getOrNull()
-            }
+        val plz = Regex("\\b\\d{5}\\b").find(place.name)?.value
+        val ort = place.name.replace(Regex("\\b\\d{5}\\b"), "").trim()
+        val hit = locate(plz, ort.ifBlank { null })
         return if (hit != null) place.copy(lat = hit.lat, lon = hit.lon) else place
     }
 
@@ -94,26 +109,35 @@ object GeoRepository {
     /** Entfernt Zusätze wie "Metropolregion", "und Umgebung", "(Hybrid)", Land usw. */
     fun cleanLocality(raw: String): String = raw
         .replace(Regex("\\(.*?\\)"), " ")
-        .replace(Regex("(?i)metropolregion|großraum|grossraum|region|und umgebung|umgebung|area|landkreis|kreis|stadt"), " ")
-        .replace(Regex("(?i)homeoffice|home office|remote|hybrid|vor ort|deutschland|germany|bundesweit"), " ")
+        .replace(Regex("(?iu)\\b(metropolregion|großraum|grossraum|region|und umgebung|umgebung|area|landkreis|kreis|stadtgebiet)\\b"), " ")
+        .replace(Regex("(?iu)\\b(homeoffice|home office|remote|hybrid|vor ort|deutschland|germany|bundesweit)\\b"), " ")
         .replace(Regex("\\b\\d{5}\\b"), " ")
         .split(",", "/", "|", "•", "·", " - ").map { it.trim() }.firstOrNull { it.length > 1 } ?: ""
 
-    /** Findet einen Ort (nur echte Orte, keine Straßen o. Ä.) – oder null. */
-    fun findCity(raw: String): Place? {
+    /** Findet einen Ort ("Stadtmitte") – zuerst offline, dann über den Ortsdienst. */
+    fun findCity(raw: String, near: Place? = null): Place? {
         val c = cleanLocality(raw).replace(Regex("\\s+"), " ").trim()
         if (c.length < 2) return null
+        if (offline()) {
+            OfflineGeo.city(c, near?.lat, near?.lon)?.let { return Place(it.name, it.state, it.lat, it.lon) }
+        }
         return runCatching { query(c, "&osm_tag=place", postcodeMode = false).firstOrNull() }.getOrNull()
     }
 
-    /** Ort bestimmen: bevorzugt über PLZ, sonst über Ortsnamen. */
-    fun locate(postcode: String?, locality: String?): Place? {
+    /**
+     * Ort bestimmen: über die PLZ (genau), sonst über den Ortsnamen (Stadtmitte).
+     * Bei gleichnamigen Orten gewinnt der, der [near] (dem Suchort) am nächsten liegt.
+     */
+    fun locate(postcode: String?, locality: String?, near: Place? = null): Place? {
         val plz = postcode?.filter { it.isDigit() }?.takeIf { it.length == 5 }
-        if (plz != null) {
-            val r = resolve(Place("$plz ${locality ?: ""}".trim(), "", Double.NaN, Double.NaN))
-            if (!r.lat.isNaN()) return r
+        if (plz != null && offline()) {
+            OfflineGeo.plz(plz)?.let { return Place("${it.plz} ${it.name}", it.state, it.lat, it.lon) }
         }
-        return locality?.let { findCity(it) }
+        locality?.let { l -> findCity(l, near)?.let { return it } }
+        if (plz != null) {
+            return runCatching { query(plz, "", postcodeMode = true).firstOrNull() }.getOrNull()
+        }
+        return null
     }
 
     /** Luftlinie in km. */

@@ -50,7 +50,7 @@ class JobRepository(context: Context) {
 
         // Orte ohne Koordinaten (Webportale) nachschlagen, damit nach Entfernung sortiert werden kann
         val refPlace = place?.takeIf { !it.lat.isNaN() }
-        val withCoords = if (refPlace != null && !radius.remote) geocodeMissing(all) else all
+        val withCoords = if (refPlace != null && !radius.remote) geocodeMissing(all, refPlace) else all
         val withDistance = withCoords.map { job ->
             if (refPlace != null && job.lat != null && job.lon != null) {
                 job.copy(distanceKm = GeoRepository.distanceKm(refPlace.lat, refPlace.lon, job.lat, job.lon))
@@ -73,19 +73,19 @@ class JobRepository(context: Context) {
     }
 
     /** Schlägt bis zu 25 unterschiedliche Ortsangaben nach (parallel, mit Zwischenspeicher). */
-    private suspend fun geocodeMissing(jobs: List<Job>): List<Job> = coroutineScope {
+    private suspend fun geocodeMissing(jobs: List<Job>, near: Place): List<Job> = coroutineScope {
         fun key(loc: String): String {
             val plz = Regex("\\b\\d{5}\\b").find(loc)?.value ?: ""
             return (plz + "|" + GeoRepository.cleanLocality(loc)).trim()
         }
         val keys = jobs.filter { it.lat == null && it.location.isNotBlank() }
             .map { key(it.location) }.filter { it.length > 2 }
-            .distinct().filter { it !in geoCache }.take(40)
+            .distinct().filter { it !in geoCache }.take(120)
         keys.map { k ->
             async(Dispatchers.IO) {
                 val plz = k.substringBefore("|").ifBlank { null }
                 val loc = k.substringAfter("|").ifBlank { null }
-                k to runCatching { GeoRepository.locate(plz, loc) }.getOrNull()
+                k to runCatching { GeoRepository.locate(plz, loc, near) }.getOrNull()
             }
         }.awaitAll().forEach { (k, p) -> geoCache[k] = p }
         jobs.map { j ->

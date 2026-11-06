@@ -175,6 +175,12 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Text(
+            "Ortsdaten: GeoNames (www.geonames.org, CC BY 4.0) und „plz_geocoord“ des WZB (Apache 2.0); " +
+                    "Ortssuche online: Photon/OpenStreetMap (© OpenStreetMap-Mitwirkende), OpenPLZ API.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.height(24.dp))
     }
 }

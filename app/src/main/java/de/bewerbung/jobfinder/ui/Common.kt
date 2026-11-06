@@ -161,6 +161,18 @@ fun formatAge(millis: Long?): String {
     }
 }
 
+/** Tagesalter einer Anzeige: "heute", "1 Tag", "12 Tage". */
+fun formatAgeDays(millis: Long): String {
+    val today = java.time.LocalDate.now()
+    val day = java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+    val days = java.time.temporal.ChronoUnit.DAYS.between(day, today).coerceAtLeast(0)
+    return when (days) {
+        0L -> "heute"
+        1L -> "1 Tag"
+        else -> "$days Tage"
+    }
+}
+
 fun formatDistance(km: Double?): String = when {
     km == null -> ""
     km < 1 -> "< 1 km"

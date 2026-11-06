@@ -30,8 +30,8 @@ data class Job(
 )
 
 enum class SortMode(val label: String) {
-    DISTANCE("Entfernung"),
-    DATE("Alter der Anzeige")
+    DISTANCE("Entfernung – nächste zuerst"),
+    DATE("Alter – neueste zuerst")
 }
 
 /** Feste Umkreis-Auswahl. */

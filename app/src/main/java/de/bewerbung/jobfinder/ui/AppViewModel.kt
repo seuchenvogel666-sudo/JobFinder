@@ -18,6 +18,7 @@ import de.bewerbung.jobfinder.data.GeoRepository
 import de.bewerbung.jobfinder.data.Job
 import de.bewerbung.jobfinder.data.JobRepository
 import de.bewerbung.jobfinder.data.LocationEnricher
+import de.bewerbung.jobfinder.data.OfflineGeo
 import de.bewerbung.jobfinder.data.Place
 import de.bewerbung.jobfinder.data.RadiusOption
 import de.bewerbung.jobfinder.data.SettingsStore
@@ -52,6 +53,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val extractor = TextExtractor(app)
     val ai = AiClient(settings)
 
+    init {
+        // Offline-Ortsverzeichnis (PLZ/Orte) im Hintergrund laden
+        GeoRepository.appContext = app.applicationContext
+        viewModelScope.launch(Dispatchers.IO) { runCatching { OfflineGeo.load(app) } }
+    }
+
     // ---------- Navigation ----------
     var screen by mutableStateOf<Screen>(Screen.Tabs)
     var tab by mutableIntStateOf(0)
@@ -73,7 +80,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var placeSuggestions by mutableStateOf<List<Place>>(emptyList())
     var placeMenuOpen by mutableStateOf(false)
     var placeLoading by mutableStateOf(false)
-    var sortMode by mutableStateOf(SortMode.DATE)
+    var sortMode by mutableStateOf(SortMode.DISTANCE)
     var maxAgeDays by mutableIntStateOf(0)
     var webSources by mutableStateOf(settings.webSources)
     var jobs by mutableStateOf<List<Job>>(emptyList())
@@ -194,15 +201,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun enrichLocations(ref: Place?) {
         enrichJob?.cancel()
-        if (radius.remote) { enrichingIds = emptySet(); return }
-        val targets = jobs.filter { it.distanceKm == null && it.baRefnr == null }.take(30)
+        if (radius.remote && jobs.none { it.publishedMillis == null }) { enrichingIds = emptySet(); return }
+        val targets = jobs.filter { it.baRefnr == null && (it.distanceKm == null || it.publishedMillis == null) }.take(40)
         enrichingIds = targets.map { it.id }.toSet()
         enrichJob = viewModelScope.launch {
             val sem = Semaphore(3)
             targets.map { job ->
                 launch {
                     sem.withPermit {
-                        val info = runCatching { enricher.enrich(job) }.getOrNull()
+                        val info = runCatching { enricher.enrich(job, ref?.takeIf { !it.lat.isNaN() }) }.getOrNull()
                         if (info != null) {
                             if (info.description.length > 300 && !descriptions.containsKey(job.id)) {
                                 descriptions[job.id] = info.description.take(15_000)
@@ -216,7 +223,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                     j.copy(
                                         location = info.locality.ifBlank { j.location },
                                         lat = lat ?: j.lat, lon = lon ?: j.lon,
-                                        distanceKm = dist
+                                        distanceKm = j.distanceKm ?: dist,
+                                        publishedMillis = j.publishedMillis ?: info.publishedMillis
                                     )
                                 }
                             }

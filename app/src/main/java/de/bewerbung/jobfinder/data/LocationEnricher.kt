@@ -22,10 +22,11 @@ class LocationEnricher(private val web: WebJobScraper) {
         val lat: Double?,
         val lon: Double?,
         val remote: Boolean,
-        val description: String
+        val description: String,
+        val publishedMillis: Long? = null
     )
 
-    suspend fun enrich(job: Job): Info? {
+    suspend fun enrich(job: Job, near: Place?): Info? {
         var ld: List<String> = emptyList()
         var text = ""
         var html = ""
@@ -45,10 +46,14 @@ class LocationEnricher(private val web: WebJobScraper) {
                 val loc = Regex("topcard__flavor--bullet[^>]*>([\\s\\S]*?)</span>").find(html)
                     ?.groupValues?.get(1)?.stripHtml()?.trim()
                 if (!loc.isNullOrBlank()) {
-                    val place = withContext(Dispatchers.IO) { GeoRepository.locate(null, loc) }
+                    val place = withContext(Dispatchers.IO) { GeoRepository.locate(null, loc, near) }
                     val desc = Regex("show-more-less-html__markup[^>]*>([\\s\\S]*?)</div>").find(html)
                         ?.groupValues?.get(1)?.stripHtml() ?: ""
-                    return Info(loc, place?.lat, place?.lon, loc.contains("remote", true), desc)
+                    val posted = Regex("posted-time-ago__text[^>]*>([\\s\\S]*?)</span>").find(html)
+                        ?.groupValues?.get(1)?.stripHtml()?.let { WebJobScraper.parseRelativeDate(it) }
+                        ?: Regex("<time[^>]*datetime=\"([^\"]+)\"").find(html)?.groupValues?.get(1)
+                            ?.let { WebJobScraper.parseIsoDay(it) }
+                    return Info(loc, place?.lat, place?.lon, loc.contains("remote", true), desc, posted)
                 }
             }
         }
@@ -80,21 +85,24 @@ class LocationEnricher(private val web: WebJobScraper) {
             val (postcode, locality, coords) = found
             val remote = raw.contains("TELECOMMUTE", ignoreCase = true)
             val desc = jsonLdDescription(raw).ifBlank { text }
+            val posted = jsonLdDate(raw)
             if (coords != null) {
-                return Info(listOfNotNull(postcode, locality).joinToString(" "), coords.first, coords.second, remote, desc)
+                return Info(listOfNotNull(postcode, locality).joinToString(" "), coords.first, coords.second, remote, desc, posted)
             }
-            val place = withContext(Dispatchers.IO) { GeoRepository.locate(postcode, locality) }
+            val place = withContext(Dispatchers.IO) { GeoRepository.locate(postcode, locality, near) }
             if (place != null || locality != null) {
-                return Info(listOfNotNull(postcode, locality).joinToString(" "), place?.lat, place?.lon, remote, desc)
+                return Info(listOfNotNull(postcode, locality).joinToString(" "), place?.lat, place?.lon, remote, desc, posted)
             }
         }
 
         // 2) Textmuster
-        val candidate = locationFromText(text) ?: return if (text.isNotBlank()) Info("", null, null, false, text) else null
+        val postedText = dateFromText(text)
+        val candidate = locationFromText(text)
+            ?: return if (text.isNotBlank()) Info("", null, null, false, text, postedText) else null
         val plz = Regex("\\b(\\d{5})\\b").find(candidate)?.groupValues?.get(1)
         val locality = candidate.replace(Regex("\\b\\d{5}\\b"), "").trim()
-        val place = withContext(Dispatchers.IO) { GeoRepository.locate(plz, locality.ifBlank { null }) }
-        return Info(candidate, place?.lat, place?.lon, false, text)
+        val place = withContext(Dispatchers.IO) { GeoRepository.locate(plz, locality.ifBlank { null }, near) }
+        return Info(candidate, place?.lat, place?.lon, false, text, postedText)
     }
 
     /** Liefert (PLZ, Ort, Koordinaten) aus einem JSON-LD-Block mit "JobPosting". */
@@ -131,6 +139,11 @@ class LocationEnricher(private val web: WebJobScraper) {
         return null
     }
 
+    private fun jsonLdDate(raw: String): Long? {
+        val root = runCatching { JSONTokener(raw.trim()).nextValue() }.getOrNull()
+        return WebJobScraper.parseIsoDay(findPosting(root)?.optString("datePosted"))
+    }
+
     private fun jsonLdDescription(raw: String): String {
         val root = runCatching { JSONTokener(raw.trim()).nextValue() }.getOrNull()
         return findPosting(root)?.optString("description")?.stripHtml() ?: ""
@@ -143,6 +156,13 @@ class LocationEnricher(private val web: WebJobScraper) {
         private val plzOrt = Regex(
             "\\b(\\d{5})\\s+([A-ZÄÖÜ][a-zäöüß.]+(?:[ -](?:am|an|der|im|in|bei|ob|vor|[A-ZÄÖÜ(][a-zäöüß.)]+)){0,3})"
         )
+
+        /** Sucht im Text nach "veröffentlicht vor 3 Tagen", "Online seit 01.11.2026" o. Ä. */
+        fun dateFromText(text: String): Long? {
+            val m = Regex("(?i)(veröffentlicht|online seit|erschienen|eingestellt|posted|datum)[^\\n]{0,40}").find(text.take(8000))
+                ?: return null
+            return WebJobScraper.parseRelativeDate(m.value)
+        }
 
         /** Sucht im Anzeigentext nach einer Ortsangabe. */
         fun locationFromText(text: String): String? {

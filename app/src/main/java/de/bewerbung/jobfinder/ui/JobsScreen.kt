@@ -81,6 +81,10 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     LaunchedEffect(vm.searching) {
         if (!vm.searching && vm.hasSearched) listState.animateScrollToItem(1)
     }
+    // Beim Umschalten der Sortierung an den Anfang der Trefferliste springen
+    LaunchedEffect(vm.sortMode) {
+        if (vm.hasSearched && !vm.searching) listState.animateScrollToItem(1)
+    }
 
     LazyColumn(
         state = listState,
@@ -303,7 +307,7 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
         }
 
         items(sorted, key = { it.id }) { job ->
-            JobCard(job, vm.radius.remote, job.id in vm.enrichingIds) { vm.screen = Screen.JobDetail(job) }
+            JobCard(job, vm.radius, job.id in vm.enrichingIds, vm.sortMode) { vm.screen = Screen.JobDetail(job) }
         }
         if (vm.hasSearched) {
             item {
@@ -332,73 +336,77 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun JobCard(job: Job, remote: Boolean, enriching: Boolean, onClick: () -> Unit) {
+private fun JobCard(job: Job, radius: RadiusOption, enriching: Boolean, sortMode: SortMode, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.Top) {
-                Text(
-                    job.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.width(8.dp))
-                // Entfernung zur Arbeitsstelle (Luftlinie) als gut sichtbares Kästchen
-                val dist = when {
-                    job.distanceKm != null -> "ca. " + formatDistance(job.distanceKm)
-                    remote -> "Remote"
-                    enriching -> "…"
-                    else -> "? km"
-                }
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (job.distanceKm != null || remote) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceVariant
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (enriching && job.distanceKm == null) {
-                            CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
-                        } else {
-                            Icon(Icons.Filled.Straighten, null, Modifier.size(14.dp))
-                        }
-                        Spacer(Modifier.width(4.dp))
-                        Text(dist, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                job.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
             if (job.company.isNotBlank()) {
                 Text(job.company, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (job.location.isNotBlank()) {
+            if (job.location.isNotBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Place, null, Modifier.size(14.dp))
-                    Text(
-                        " ${job.location}",
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    Spacer(Modifier.width(10.dp))
+                    Text(" ${job.location}", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                if (job.publishedMillis != null) {
-                    Icon(Icons.Filled.Schedule, null, Modifier.size(14.dp))
-                    Text(" ${formatAge(job.publishedMillis)}", style = MaterialTheme.typography.bodySmall)
+            }
+            // Zwei gut sichtbare Kästchen: Entfernung und Alter der Anzeige
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                val (distText, distKnown) = when {
+                    job.distanceKm != null -> ("ca. " + formatDistance(job.distanceKm)) to true
+                    radius.remote -> "Remote" to true
+                    enriching -> "Ort wird ermittelt …" to false
+                    // Letzte Schätzung: das Portal hat nur Stellen im gewählten Umkreis geliefert
+                    else -> "≤ ${radius.km} km (geschätzt)" to false
                 }
+                Badge(
+                    text = distText,
+                    highlighted = distKnown && sortMode == SortMode.DISTANCE,
+                    loading = enriching && job.distanceKm == null
+                ) { Icon(Icons.Filled.Straighten, null, Modifier.size(14.dp)) }
+
+                val ageText = when {
+                    job.publishedMillis != null -> formatAgeDays(job.publishedMillis)
+                    enriching -> "…"
+                    else -> "Alter ?"
+                }
+                Badge(
+                    text = ageText,
+                    highlighted = job.publishedMillis != null && sortMode == SortMode.DATE,
+                    loading = false
+                ) { Icon(Icons.Filled.Schedule, null, Modifier.size(14.dp)) }
             }
             Text(
                 job.source,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+@Composable
+private fun Badge(text: String, highlighted: Boolean, loading: Boolean, icon: @Composable () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (highlighted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (loading) CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp) else icon()
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Normal
             )
         }
     }
