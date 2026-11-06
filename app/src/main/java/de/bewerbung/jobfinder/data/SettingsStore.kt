@@ -13,7 +13,7 @@ class SettingsStore(context: Context) {
 
     fun apiKey(provider: AiProvider): String = p.getString("key_${provider.name}", "") ?: ""
     fun setApiKey(provider: AiProvider, key: String) =
-        p.edit().putString("key_${provider.name}", key.trim()).apply()
+        p.edit().putString("key_${provider.name}", key.replace(Regex("\\s"), "")).apply()
 
     fun model(provider: AiProvider): String =
         (p.getString("model_${provider.name}", "") ?: "").ifBlank { defaultModel(provider) }
