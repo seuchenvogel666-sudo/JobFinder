@@ -67,6 +67,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var placeText by mutableStateOf(settings.lastPlace)
     var selectedPlace by mutableStateOf<Place?>(null)
     var placeSuggestions by mutableStateOf<List<Place>>(emptyList())
+    var placeMenuOpen by mutableStateOf(false)
+    var placeLoading by mutableStateOf(false)
     var sortMode by mutableStateOf(SortMode.DATE)
     var maxAgeDays by mutableIntStateOf(0)
     var webSources by mutableStateOf(settings.webSources)
@@ -87,22 +89,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         selectedPlace = null
         placeJob?.cancel()
         if (text.trim().length < 2) {
-            placeSuggestions = emptyList(); return
+            placeSuggestions = emptyList(); placeMenuOpen = false; placeLoading = false; return
         }
         placeJob = viewModelScope.launch {
-            delay(350)
+            delay(300)
+            placeLoading = true
             val list = withContext(Dispatchers.IO) {
                 runCatching { GeoRepository.searchPlaces(text.trim()) }.getOrDefault(emptyList())
             }
+            placeLoading = false
             placeSuggestions = list
+            placeMenuOpen = true
         }
     }
 
     fun selectPlace(p: Place) {
         placeJob?.cancel()
+        placeLoading = false
         selectedPlace = p
         placeText = p.name
         placeSuggestions = emptyList()
+        placeMenuOpen = false
     }
 
     fun sortedJobs(): List<Job> = when (sortMode) {
@@ -122,6 +129,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         placeSuggestions = emptyList()
+        placeMenuOpen = false
         settings.lastQuery = query
         settings.lastRadius = radius
         settings.lastPlace = placeText

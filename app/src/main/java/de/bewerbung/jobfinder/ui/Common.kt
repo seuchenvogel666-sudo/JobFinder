@@ -164,7 +164,7 @@ fun formatAge(millis: Long?): String {
 fun formatDistance(km: Double?): String = when {
     km == null -> ""
     km < 1 -> "< 1 km"
-    else -> "${km.toInt()} km"
+    else -> "${Math.round(km)} km"
 }
 
 fun wordCount(text: String): Int = text.split(Regex("\\s+")).count { it.isNotBlank() }

@@ -70,7 +70,7 @@ fun JobDetailScreen(vm: AppViewModel, job: Job) {
             if (job.company.isNotBlank()) Text(job.company, style = MaterialTheme.typography.titleMedium)
             val meta = listOf(
                 job.location,
-                formatDistance(job.distanceKm),
+                formatDistance(job.distanceKm).let { if (it.isBlank()) "" else "$it entfernt (Luftlinie)" },
                 formatAge(job.publishedMillis).let { if (it.isBlank()) "" else "veröffentlicht $it" }
             ).filter { it.isNotBlank() }.joinToString(" · ")
             if (meta.isNotBlank()) Text(meta, style = MaterialTheme.typography.bodyMedium)

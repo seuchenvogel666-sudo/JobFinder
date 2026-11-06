@@ -76,7 +76,7 @@ class JobRepository(context: Context) {
         fun key(loc: String) = loc.substringBefore(",").substringBefore("(").replace(Regex("\\b\\d{5}\\b"), "").trim()
         val keys = jobs.filter { it.lat == null && it.location.isNotBlank() }
             .map { key(it.location) }.filter { it.length > 1 && !it.contains("remote", true) }
-            .distinct().filter { it !in geoCache }.take(25)
+            .distinct().filter { it !in geoCache }.take(40)
         keys.map { k ->
             async(Dispatchers.IO) { k to runCatching { GeoRepository.searchPlaces(k).firstOrNull() }.getOrNull() }
         }.awaitAll().forEach { (k, p) -> geoCache[k] = p }

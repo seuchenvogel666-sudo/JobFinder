@@ -38,7 +38,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +56,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupProperties
 import de.bewerbung.jobfinder.data.Job
 import de.bewerbung.jobfinder.data.PortalLinks
 import de.bewerbung.jobfinder.data.SortMode
@@ -98,16 +101,50 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                         modifier = Modifier.fillMaxWidth()
                     )
                     Row(verticalAlignment = Alignment.Top) {
-                        OutlinedTextField(
-                            value = vm.placeText,
-                            onValueChange = { vm.onPlaceTextChange(it) },
-                            label = { Text("Ort / PLZ") },
-                            leadingIcon = { Icon(Icons.Filled.Place, null) },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { focus.clearFocus(); vm.search() }),
-                            modifier = Modifier.weight(1f)
-                        )
+                        // Ort/PLZ mit aufklappender Vorschlagsliste (nur Deutschland)
+                        Box(Modifier.weight(1f)) {
+                            OutlinedTextField(
+                                value = vm.placeText,
+                                onValueChange = { vm.onPlaceTextChange(it) },
+                                label = { Text("Ort / PLZ") },
+                                leadingIcon = { Icon(Icons.Filled.Place, null) },
+                                trailingIcon = {
+                                    if (vm.placeLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { focus.clearFocus(); vm.search() }),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            DropdownMenu(
+                                expanded = vm.placeMenuOpen,
+                                onDismissRequest = { vm.placeMenuOpen = false },
+                                // Tastatur bleibt offen, man kann weitertippen
+                                properties = PopupProperties(focusable = false)
+                            ) {
+                                if (vm.placeSuggestions.isEmpty()) {
+                                    DropdownMenuItem(
+                                        text = { Text("Kein Ort in Deutschland gefunden", style = MaterialTheme.typography.bodySmall) },
+                                        onClick = { vm.placeMenuOpen = false },
+                                        enabled = false
+                                    )
+                                }
+                                vm.placeSuggestions.forEach { p ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(p.name, fontWeight = FontWeight.SemiBold)
+                                                if (p.detail.isNotBlank()) {
+                                                    Text(p.detail, style = MaterialTheme.typography.bodySmall)
+                                                }
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.Place, null, Modifier.size(18.dp)) },
+                                        onClick = { vm.selectPlace(p); focus.clearFocus() }
+                                    )
+                                }
+                            }
+                        }
                         Spacer(Modifier.width(8.dp))
                         // Feste Umkreis-Auswahl (aufklappbar)
                         Box {
@@ -136,22 +173,11 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
-                    // Ortsvorschläge
-                    if (vm.placeSuggestions.isNotEmpty()) {
-                        Card {
-                            Column {
-                                vm.placeSuggestions.forEach { p ->
-                                    Text(
-                                        p.label,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { vm.selectPlace(p); focus.clearFocus() }
-                                            .padding(horizontal = 12.dp, vertical = 10.dp)
-                                    )
-                                    HorizontalDivider()
-                                }
-                            }
-                        }
+                    if (vm.selectedPlace == null && vm.placeText.isNotBlank() && !vm.radius.remote) {
+                        Text(
+                            "Tipp: Ort aus den Vorschlägen antippen – dann wird die Entfernung genau berechnet.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                     vm.selectedPlace?.let {
                         Text(
@@ -277,7 +303,7 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
         }
 
         items(sorted, key = { it.id }) { job ->
-            JobCard(job) { vm.screen = Screen.JobDetail(job) }
+            JobCard(job, vm.radius.remote) { vm.screen = Screen.JobDetail(job) }
         }
         if (vm.hasSearched) {
             item {
@@ -306,20 +332,44 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun JobCard(job: Job, onClick: () -> Unit) {
+private fun JobCard(job: Job, remote: Boolean, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                job.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.Top) {
+                Text(
+                    job.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(8.dp))
+                // Entfernung zur Arbeitsstelle (Luftlinie) als gut sichtbares Kästchen
+                val dist = when {
+                    job.distanceKm != null -> formatDistance(job.distanceKm)
+                    remote -> "Remote"
+                    else -> "? km"
+                }
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (job.distanceKm != null || remote) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Straighten, null, Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(dist, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
             if (job.company.isNotBlank()) {
                 Text(job.company, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -327,7 +377,7 @@ private fun JobCard(job: Job, onClick: () -> Unit) {
                 if (job.location.isNotBlank()) {
                     Icon(Icons.Filled.Place, null, Modifier.size(14.dp))
                     Text(
-                        " ${job.location}" + (formatDistance(job.distanceKm).let { if (it.isBlank()) "" else " · $it" }),
+                        " ${job.location}",
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
