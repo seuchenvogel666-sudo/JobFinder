@@ -23,8 +23,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -58,6 +60,7 @@ import de.bewerbung.jobfinder.util.PdfExport
 fun CoverLetterScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     var cvMenu by remember { mutableStateOf(false) }
+    var showPaste by remember { mutableStateOf(false) }
     val configured = vm.ai.isConfigured()
 
     Scaffold(
@@ -82,10 +85,14 @@ fun CoverLetterScreen(vm: AppViewModel) {
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (!configured) {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                     Column(Modifier.padding(12.dp)) {
-                        Text("Noch keine KI eingerichtet. Bitte in den Einstellungen Anbieter und API-Schlüssel eintragen.")
-                        TextButton(onClick = { vm.screen = Screen.Tabs; vm.tab = 2 }) { Text("Zu den Einstellungen") }
+                        Text(
+                            "Kein API-Schlüssel eingerichtet – kein Problem: Mit „An Chat-App senden“ geht die " +
+                                    "Anfrage an Claude, ChatGPT oder Gemini (dein normales Abo bzw. kostenlos). " +
+                                    "Die Antwort fügst du dann unten wieder ein."
+                        )
+                        TextButton(onClick = { vm.screen = Screen.Tabs; vm.tab = 2 }) { Text("Oder API-Schlüssel eintragen") }
                     }
                 }
             }
@@ -167,29 +174,63 @@ fun CoverLetterScreen(vm: AppViewModel) {
                 modifier = Modifier.fillMaxWidth()
             )
 
+            // Weg 1: An eine Chat-App senden (ohne API-Schlüssel)
             Button(
-                onClick = { vm.generateCoverLetter() },
-                enabled = !vm.clBusy && configured,
+                onClick = {
+                    vm.coverLetterChatPrompt()?.let {
+                        shareToChatApp(ctx, it)
+                        showPaste = true
+                    }
+                },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                if (vm.clBusy) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text("KI schreibt …")
-                } else {
-                    Icon(Icons.Filled.AutoAwesome, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (vm.clResult.isBlank()) "Anschreiben generieren" else "Neu generieren")
+                Icon(Icons.Filled.Send, null)
+                Spacer(Modifier.width(8.dp))
+                Text("An Chat-App senden (Claude, ChatGPT, Gemini)")
+            }
+
+            // Weg 2: direkt per API (nur mit Schlüssel)
+            if (configured) {
+                OutlinedButton(
+                    onClick = { vm.generateCoverLetter() },
+                    enabled = !vm.clBusy,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (vm.clBusy) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("KI schreibt …")
+                    } else {
+                        Icon(Icons.Filled.AutoAwesome, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (vm.clResult.isBlank()) "Direkt in der App generieren" else "Neu generieren")
+                    }
                 }
             }
             vm.aiError?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
 
-            if (vm.clResult.isNotBlank()) {
+            if (showPaste || vm.clResult.isNotBlank()) {
                 Text("3. Ergebnis (bearbeitbar)", style = MaterialTheme.typography.titleMedium)
+                OutlinedButton(
+                    onClick = {
+                        val pasted = readClipboard(ctx).trim()
+                        if (pasted.isBlank() || pasted.startsWith("Du bist ein erfahrener")) {
+                            vm.toast = "In der Chat-App zuerst die Antwort kopieren, dann hier einfügen."
+                        } else {
+                            vm.clResult = pasted.replace("**", "")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.ContentPaste, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Antwort aus Zwischenablage einfügen")
+                }
                 OutlinedTextField(
                     value = vm.clResult, onValueChange = { vm.clResult = it },
+                    placeholder = { Text("Hier erscheint das Anschreiben – du kannst es auch direkt einfügen oder bearbeiten.") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 300.dp)

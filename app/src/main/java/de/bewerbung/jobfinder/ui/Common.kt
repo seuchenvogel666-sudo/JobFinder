@@ -169,3 +169,31 @@ fun formatDistance(km: Double?): String = when {
 fun wordCount(text: String): Int = text.split(Regex("\\s+")).count { it.isNotBlank() }
 
 val SectionSpacing = Arrangement.spacedBy(12.dp)
+
+/**
+ * Schickt einen Text über das Android-Teilen-Menü an eine Chat-App (Claude, ChatGPT, Gemini …)
+ * und legt ihn zusätzlich in die Zwischenablage – falls die App geteilten Text nicht übernimmt.
+ */
+fun shareToChatApp(context: Context, text: String) {
+    de.bewerbung.jobfinder.util.PdfExport.copyToClipboard(context, text)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    runCatching {
+        context.startActivity(Intent.createChooser(intent, "An Chat-App senden (z. B. Claude)"))
+    }
+    Toast.makeText(
+        context,
+        "Anfrage ist auch in der Zwischenablage. Antwort danach hier einfügen.",
+        Toast.LENGTH_LONG
+    ).show()
+}
+
+/** Liest Text aus der Zwischenablage. */
+fun readClipboard(context: Context): String {
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+    val clip = cm.primaryClip ?: return ""
+    if (clip.itemCount == 0) return ""
+    return clip.getItemAt(0).coerceToText(context)?.toString() ?: ""
+}

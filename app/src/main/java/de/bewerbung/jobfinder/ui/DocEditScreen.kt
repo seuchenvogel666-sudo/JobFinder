@@ -22,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Save
@@ -51,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import de.bewerbung.jobfinder.ai.Prompts
 import de.bewerbung.jobfinder.data.AppDocument
 import de.bewerbung.jobfinder.data.DocType
 import de.bewerbung.jobfinder.data.DocumentStore
@@ -69,6 +72,7 @@ fun DocEditScreen(vm: AppViewModel, docId: String) {
     var text by remember(docId) { mutableStateOf(original.text) }
     var focus by remember(docId) { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf(false) }
+    var cvPasteVisible by remember(docId) { mutableStateOf(false) }
 
     LaunchedEffect(docId) {
         vm.cvResult = null
@@ -162,17 +166,51 @@ fun DocEditScreen(vm: AppViewModel, docId: String) {
                             modifier = Modifier.fillMaxWidth()
                         )
                         Button(
-                            onClick = { save(); vm.improveCv(text, focus) },
-                            enabled = !vm.cvBusy && text.isNotBlank()
+                            onClick = {
+                                save()
+                                shareToChatApp(ctx, Prompts.forChat(Prompts.cvSystem, Prompts.cvUser(text, focus)))
+                                cvPasteVisible = true
+                            },
+                            enabled = text.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            if (vm.cvBusy) {
-                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Icon(Icons.Filled.Send, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("An Chat-App senden (Claude, ChatGPT, Gemini)")
+                        }
+                        if (cvPasteVisible) {
+                            OutlinedButton(
+                                onClick = {
+                                    val pasted = readClipboard(ctx).trim()
+                                    if (pasted.isBlank() || pasted.startsWith("Du bist ein erfahrener")) {
+                                        vm.toast = "In der Chat-App zuerst die Antwort kopieren, dann hier einfügen."
+                                    } else {
+                                        vm.cvResult = pasted.replace("**", "")
+                                        cvPasteVisible = false
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Filled.ContentPaste, null)
                                 Spacer(Modifier.width(8.dp))
-                                Text("KI arbeitet …")
-                            } else {
-                                Icon(Icons.Filled.AutoAwesome, null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Lebenslauf verbessern")
+                                Text("Antwort aus Zwischenablage einfügen")
+                            }
+                        }
+                        if (vm.ai.isConfigured()) {
+                            OutlinedButton(
+                                onClick = { save(); vm.improveCv(text, focus) },
+                                enabled = !vm.cvBusy && text.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (vm.cvBusy) {
+                                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("KI arbeitet …")
+                                } else {
+                                    Icon(Icons.Filled.AutoAwesome, null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Direkt in der App verbessern")
+                                }
                             }
                         }
                         vm.aiError?.let {

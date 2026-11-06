@@ -305,29 +305,36 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun generateCoverLetter() {
+    /** Baut die Anfrage (System + Nutzer) – oder null mit Fehlermeldung in aiError. */
+    private fun coverLetterPromptParts(): Pair<String, String>? {
         val cvParts = buildList {
             clCvId?.let { id -> doc(id)?.let { add(it) } }
             clExtraDocIds.filter { it != clCvId }.mapNotNull { doc(it) }.forEach { add(it) }
         }
         if (cvParts.isEmpty()) {
             aiError = "Bitte zuerst unter \"Unterlagen\" einen Lebenslauf anlegen."
-            return
+            return null
         }
         if (clAdText.isBlank() && clTitle.isBlank()) {
             aiError = "Bitte Stellentitel und Anzeigentext angeben."
-            return
+            return null
         }
-        val cvText = cvParts.joinToString("\n\n") { "--- ${it.type.label}: ${it.title} ---\n${it.text}" }
-        clBusy = true
         aiError = null
+        val cvText = cvParts.joinToString("\n\n") { "--- ${it.type.label}: ${it.title} ---\n${it.text}" }
+        return Prompts.coverLetterSystem to
+                Prompts.coverLetterUser(clTitle, clCompany, clAdText, cvText, settings.senderInfo, clNotes)
+    }
+
+    /** Komplette Anfrage als ein Text zum Einfügen in eine Chat-App (Claude, ChatGPT, Gemini). */
+    fun coverLetterChatPrompt(): String? =
+        coverLetterPromptParts()?.let { (sys, user) -> Prompts.forChat(sys, user) }
+
+    fun generateCoverLetter() {
+        val (sys, user) = coverLetterPromptParts() ?: return
+        clBusy = true
         viewModelScope.launch {
-            runCatching {
-                ai.complete(
-                    Prompts.coverLetterSystem,
-                    Prompts.coverLetterUser(clTitle, clCompany, clAdText, cvText, settings.senderInfo, clNotes)
-                )
-            }.onSuccess { clResult = it }
+            runCatching { ai.complete(sys, user) }
+                .onSuccess { clResult = it }
                 .onFailure { aiError = it.message }
             clBusy = false
         }
