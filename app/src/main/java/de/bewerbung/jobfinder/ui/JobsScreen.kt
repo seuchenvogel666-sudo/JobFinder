@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -39,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,8 +64,15 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     val focus = LocalFocusManager.current
     var showNotes by remember { mutableStateOf(false) }
     val sorted = vm.sortedJobs()
+    val listState = rememberLazyListState()
+
+    // Nach der Suche automatisch zur Trefferliste unter dem Suchfeld scrollen
+    LaunchedEffect(vm.searching) {
+        if (!vm.searching && vm.hasSearched) listState.animateScrollToItem(1)
+    }
 
     LazyColumn(
+        state = listState,
         modifier = modifier.imePadding(),
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -187,33 +196,35 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
             item {
                 Column {
                     Text(
-                        "${sorted.size} Stellen gefunden" + if (showNotes) "" else "  (Details zu Quellen ▾)",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.clickable { showNotes = !showNotes }
+                        if (vm.searching) "Suche läuft …" else "${sorted.size} Stellen gefunden",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
                     )
-                    if (showNotes) {
-                        vm.searchNotes.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
-                    }
-                }
-            }
-            item {
-                Column {
-                Text(
-                    "Auch direkt bei den großen Portalen suchen (öffnet den Browser):",
-                    style = MaterialTheme.typography.labelMedium
-                )
-                Row(
-                    Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    PortalLinks.all(vm.query, vm.placeText, vm.radius.toIntOrNull() ?: 25).forEach { (name, url) ->
-                        AssistChip(
-                            onClick = { openUrl(ctx, url) },
-                            label = { Text(name) },
-                            leadingIcon = { Icon(Icons.Filled.Public, null, Modifier.size(16.dp)) }
+                    val hasError = vm.searchNotes.any { it.contains("Fehler") }
+                    if (showNotes || hasError || (sorted.isEmpty() && !vm.searching)) {
+                        vm.searchNotes.forEach {
+                            Text(
+                                "• $it",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (it.contains("Fehler")) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        Text(
+                            "Quellen anzeigen ▾",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable { showNotes = true }
                         )
                     }
-                }
+                    if (sorted.isEmpty() && !vm.searching) {
+                        Text(
+                            "Keine Treffer. Tipp: allgemeineren Begriff (z. B. „Lager“ statt „Lagerlogistiker m/w/d“) " +
+                                    "oder größeren Umkreis versuchen.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             }
         } else {
@@ -231,6 +242,28 @@ fun JobsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
 
         items(sorted, key = { it.id }) { job ->
             JobCard(job) { vm.screen = Screen.JobDetail(job) }
+        }
+        if (vm.hasSearched) {
+            item {
+                Column {
+                Text(
+                    "Weitere Stellen direkt bei den großen Portalen (öffnet den Browser):",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    PortalLinks.all(vm.query, vm.placeText, vm.radius.toIntOrNull() ?: 25).forEach { (name, url) ->
+                        AssistChip(
+                            onClick = { openUrl(ctx, url) },
+                            label = { Text(name) },
+                            leadingIcon = { Icon(Icons.Filled.Public, null, Modifier.size(16.dp)) }
+                        )
+                    }
+                }
+                }
+            }
         }
         item { Spacer(Modifier.height(24.dp)) }
     }
