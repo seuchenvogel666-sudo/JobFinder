@@ -58,7 +58,6 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
             mutableStateOf(if (p == AiProvider.NONE) "" else s.model(p))
         }
     }
-    var sender by remember { mutableStateOf(s.senderInfo) }
 
     var modelMenu by remember { mutableStateOf(false) }
 
@@ -155,18 +154,14 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
 
         Card {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Meine Absenderdaten (optional)", style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(
-                    value = sender, onValueChange = { sender = it; s.senderInfo = it },
-                    label = { Text("Name, Adresse, Telefon, E-Mail") },
-                    minLines = 3,
-                    supportingText = { if (sender.isNotBlank()) SavedHint("Gespeichert") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Text("Kontaktdaten & Design", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Wird im Briefkopf des Anschreibens verwendet. Leer lassen = aus dem Lebenslauf übernehmen.",
+                    "Name, Adresse, Telefon, E-Mail, Foto, Unterschrift und die Gestaltung von Lebenslauf, " +
+                            "Anschreiben und Deckblatt.",
                     style = MaterialTheme.typography.bodySmall
                 )
+                if (!vm.profile.isEmpty) SavedHint("Kontaktdaten gespeichert: ${vm.profile.name}")
+                TextButton(onClick = { vm.navigate(Screen.Design) }) { Text("Kontaktdaten & Design öffnen") }
             }
         }
 

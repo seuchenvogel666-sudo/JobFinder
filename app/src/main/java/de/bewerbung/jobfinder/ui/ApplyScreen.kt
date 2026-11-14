@@ -37,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -120,10 +121,25 @@ fun ApplyScreen(vm: AppViewModel) {
 
             // ---------- Unterlagen ----------
             Text("1. Unterlagen für die Bewerbungsmappe", style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Deckblatt beifügen")
+                    Text("Für Online-Bewerbungen meist nicht nötig", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = vm.applyCover, onCheckedChange = { vm.applyCover = it })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Design: ${vm.design.template.label}",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { vm.navigate(Screen.Design) }) { Text("Design ändern") }
+            }
             Text(
-                "Alles wird zu EINER PDF zusammengefügt (Reihenfolge wie unten). Lebenslauf und Anschreiben " +
-                        "werden aus dem bearbeiteten Text erstellt, Zeugnisse und Nachweise – wenn vorhanden – " +
-                        "aus dem Original.",
+                "Alles wird zu EINER PDF zusammengefügt (Reihenfolge wie unten). Deckblatt, Anschreiben und " +
+                        "Lebenslauf werden im gewählten Design gestaltet, Zeugnisse und Nachweise – wenn vorhanden – " +
+                        "aus dem Original übernommen.",
                 style = MaterialTheme.typography.bodySmall
             )
             if (vm.applyLetterText.isNotBlank()) {

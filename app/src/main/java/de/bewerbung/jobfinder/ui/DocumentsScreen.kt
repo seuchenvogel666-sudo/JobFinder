@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material3.Button
@@ -149,6 +150,14 @@ fun DocumentsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                         Text("Leeres Dokument (Text eintippen/einfügen)")
                     }
                 }
+            }
+        }
+
+        item {
+            OutlinedButton(onClick = { vm.navigate(Screen.Design) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Palette, null)
+                Spacer(Modifier.width(6.dp))
+                Text("Design, Foto, Unterschrift & Kontaktdaten")
             }
         }
 

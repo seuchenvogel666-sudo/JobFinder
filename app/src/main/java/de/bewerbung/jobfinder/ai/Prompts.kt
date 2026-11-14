@@ -13,8 +13,10 @@ Regeln:
 - Sprache: Deutsch, Sie-Form gegenüber dem Unternehmen, moderner und sachlicher Ton.
 - Das gesamte Anschreiben muss auf EINE DIN-A4-Seite passen: Der Fließtext
   (Anrede bis Grußformel) hat höchstens 230–280 Wörter in 3–4 kurzen Absätzen.
-- Aufbau: Absenderzeile(n), Empfänger (Firma, ggf. Ort), Ort und Datum, Betreff
-  ("Bewerbung als ..."), persönliche Anrede (falls kein Name bekannt:
+- Aufbau: KEIN Absenderblock (der steht im gestalteten Briefkopf). Beginne mit dem
+  Empfänger (Firma, ggf. Ansprechpartner, Adresse – je eine Zeile), dann eine Leerzeile,
+  dann eine eigene Zeile nur mit Ort und Datum (z. B. "Berlin, 13.11.2026"), dann der Betreff
+  in einer eigenen Zeile ("Bewerbung als ..."), persönliche Anrede (falls kein Name bekannt:
   "Sehr geehrte Damen und Herren,"), Einleitung mit konkretem Bezug zur Stelle,
   Hauptteil, Schluss mit Verfügbarkeit/Gesprächswunsch, "Mit freundlichen Grüßen", Name.
 - Beziehe dich ausdrücklich auf 2–4 zentrale Anforderungen oder Aufgaben aus der Anzeige
@@ -84,8 +86,15 @@ Regeln:
   aktiven Verben, nenne Ergebnisse/Verantwortung, wo im Original erkennbar.
 - Entferne Wiederholungen, veraltete oder irrelevante Angaben (z. B. Grundschule) und
   überlange Formulierungen. Keine Angaben zu Religion, Familienstand etc. ergänzen.
-- Formatierung als reiner Text: Abschnittsüberschriften in GROSSBUCHSTABEN,
-  Stichpunkte mit "• ". Kein Markdown, keine Erklärungen davor oder danach.
+- Formatierung als reiner Text in GENAU diesem Schema (die App gestaltet daraus ein Layout):
+  * Abschnittsüberschriften in GROSSBUCHSTABEN auf einer eigenen Zeile, z. B. KURZPROFIL,
+    BERUFSERFAHRUNG, AUSBILDUNG, WEITERBILDUNGEN, KENNTNISSE, SPRACHEN, INTERESSEN.
+  * Jede Station in einer Zeile: MM/JJJJ – MM/JJJJ | Position bzw. Abschluss | Firma bzw. Schule, Ort
+    (laufend: "MM/JJJJ – heute"), darunter die Stichpunkte mit "• ".
+  * KENNTNISSE und SPRACHEN je Zeile als "Bezeichnung – Niveau", z. B. "Englisch – C1",
+    "MS Excel – sehr gut", "GMP-Dokumentation – sehr gut". Keine Prozentangaben oder Balken.
+  * Persönliche Daten (Name, Adresse, Telefon, E-Mail) NICHT ausgeben – die stehen im Kopf des Layouts.
+  * Kein Markdown, keine Erklärungen davor oder danach.
 """.trimIndent()
 
     fun cvUser(cv: String, focus: String): String = buildString {

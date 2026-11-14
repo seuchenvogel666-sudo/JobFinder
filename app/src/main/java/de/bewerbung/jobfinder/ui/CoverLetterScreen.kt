@@ -58,6 +58,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import de.bewerbung.jobfinder.data.DocType
 import de.bewerbung.jobfinder.util.PdfExport
+import de.bewerbung.jobfinder.util.DesignRenderer
+import androidx.compose.runtime.LaunchedEffect
 
 @Composable
 fun CoverLetterScreen(vm: AppViewModel) {
@@ -261,7 +263,15 @@ fun CoverLetterScreen(vm: AppViewModel) {
                         .fillMaxWidth()
                         .heightIn(min = 300.dp)
                 )
-                val pages = PdfExport.pageCount(vm.clResult)
+                var pages by remember { mutableStateOf(1) }
+                LaunchedEffect(vm.clResult, vm.design, vm.profile, vm.designVersion) {
+                    kotlinx.coroutines.delay(600)
+                    pages = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        runCatching {
+                            DesignRenderer.letterPageCount(vm.clResult, vm.profile, vm.design, vm.loadAssets())
+                        }.getOrDefault(PdfExport.pageCount(vm.clResult))
+                    }
+                }
                 Text(
                     "${wordCount(vm.clResult)} Wörter · " +
                             if (pages <= 1) "passt auf eine DIN-A4-Seite ✓"
@@ -278,7 +288,8 @@ fun CoverLetterScreen(vm: AppViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(onClick = {
-                        PdfExport.sharePdf(ctx, "Anschreiben ${vm.clCompany}".trim(), vm.clResult)
+                        val t = "Anschreiben ${vm.clCompany}".trim()
+                        vm.exportDesigned(false, vm.clResult, t) { PdfExport.shareFile(ctx, it, t) }
                     }) {
                         Icon(Icons.Filled.PictureAsPdf, null)
                         Spacer(Modifier.width(6.dp))

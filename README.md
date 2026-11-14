@@ -26,6 +26,12 @@
   Zwischenzeugnissen, Zeugnissen und Weiterbildungen
 - Ohne API-Schlüssel: „An Chat-App senden“ (Claude, ChatGPT, Gemini) und Antwort einfügen
 
+**Design**
+- Vorlagen: Kopfband, Seitenleiste, Zeitleiste, Schlicht (für Online-Portale)
+- Akzentfarbe, Bewerbungsfoto, Unterschrift (zeichnen oder fotografieren), Live-Vorschau
+- Gleiches Design für Deckblatt, Anschreiben und Lebenslauf; Deckblatt optional
+- Texte bleiben echter Text im PDF (lesbar für Bewerbermanagement-Systeme)
+
 **Direkt bewerben**
 - Bewerbungsmappe als ein PDF (Anschreiben, Lebenslauf, Nachweise im Original)
 - Per E-Mail an die Adresse aus der Anzeige oder speichern und auf der Bewerbungsseite hochladen

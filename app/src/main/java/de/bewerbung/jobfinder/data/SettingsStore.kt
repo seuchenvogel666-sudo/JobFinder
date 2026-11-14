@@ -21,9 +21,39 @@ class SettingsStore(context: Context) {
     fun setModel(provider: AiProvider, model: String) =
         p.edit().putString("model_${provider.name}", model.trim()).apply()
 
+    /** Absenderdaten für die KI – aus den Kontaktdaten (Design), sonst aus dem alten Freitextfeld. */
     var senderInfo: String
-        get() = p.getString("senderInfo", "") ?: ""
+        get() = profile.takeIf { !it.isEmpty }?.asText() ?: (p.getString("senderInfo", "") ?: "")
         set(v) = p.edit().putString("senderInfo", v).apply()
+
+    var profile: Profile
+        get() {
+            if (!p.contains("prof_name") && !p.contains("prof_email")) {
+                // Einmalige Übernahme aus den alten Absenderdaten
+                return Profile.parse(p.getString("senderInfo", "") ?: "")
+            }
+            return Profile(
+                name = p.getString("prof_name", "") ?: "",
+                headline = p.getString("prof_headline", "") ?: "",
+                address = p.getString("prof_address", "") ?: "",
+                phone = p.getString("prof_phone", "") ?: "",
+                email = p.getString("prof_email", "") ?: "",
+                web = p.getString("prof_web", "") ?: ""
+            )
+        }
+        set(v) = p.edit()
+            .putString("prof_name", v.name).putString("prof_headline", v.headline)
+            .putString("prof_address", v.address).putString("prof_phone", v.phone)
+            .putString("prof_email", v.email).putString("prof_web", v.web).apply()
+
+    var design: DesignConfig
+        get() = DesignConfig(
+            template = DesignTemplate.entries.firstOrNull { it.name == p.getString("design_template", "") } ?: DesignTemplate.HEADER,
+            accent = AccentColor.entries.firstOrNull { it.name == p.getString("design_accent", "") } ?: AccentColor.BLUE,
+            coverByDefault = p.getBoolean("design_cover", false)
+        )
+        set(v) = p.edit().putString("design_template", v.template.name)
+            .putString("design_accent", v.accent.name).putBoolean("design_cover", v.coverByDefault).apply()
 
     /** Aktivierte Jobportale (Standard: alle). */
     var webSources: Set<WebSite>

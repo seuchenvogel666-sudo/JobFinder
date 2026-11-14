@@ -102,7 +102,14 @@ fun DocEditScreen(vm: AppViewModel, docId: String) {
                     IconButton(onClick = { save(); vm.toast = "Gespeichert" }) {
                         Icon(Icons.Filled.Save, "Speichern")
                     }
-                    IconButton(onClick = { save(); PdfExport.sharePdf(ctx, title, text) }) {
+                    IconButton(onClick = {
+                        save()
+                        when (type) {
+                            DocType.LEBENSLAUF -> vm.exportDesigned(true, text, title) { PdfExport.shareFile(ctx, it, title) }
+                            DocType.ANSCHREIBEN -> vm.exportDesigned(false, text, title) { PdfExport.shareFile(ctx, it, title) }
+                            else -> PdfExport.sharePdf(ctx, title, text)
+                        }
+                    }) {
                         Icon(Icons.Filled.PictureAsPdf, "Als PDF teilen")
                     }
                     IconButton(onClick = { confirmDelete = true }) {

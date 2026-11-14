@@ -2,6 +2,13 @@ package de.bewerbung.jobfinder.ui
 
 import android.app.Application
 import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import de.bewerbung.jobfinder.data.DesignConfig
+import de.bewerbung.jobfinder.data.Profile
+import de.bewerbung.jobfinder.util.DesignRenderer
+import de.bewerbung.jobfinder.util.SampleTexts
+import de.bewerbung.jobfinder.util.SignatureTools
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -43,6 +50,7 @@ sealed class Screen {
     data class DocEdit(val docId: String) : Screen()
     data object CoverLetter : Screen()
     data object Apply : Screen()
+    data object Design : Screen()
 }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -64,11 +72,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var tab by mutableIntStateOf(0)
 
     /** Für "Zurück" aus dem Bewerben-Bildschirm. */
-    private var screenBeforeApply: Screen = Screen.Tabs
+    /** Rücksprung-Stapel für Bildschirme, die aus anderen heraus geöffnet werden (Bewerben, Design). */
+    private val backStack = mutableListOf<Screen>()
+
+    fun navigate(target: Screen) {
+        if (screen != target) backStack.add(screen)
+        screen = target
+    }
 
     fun back(): Boolean {
         if (screen == Screen.Tabs) return false
-        screen = if (screen == Screen.Apply) screenBeforeApply else Screen.Tabs
+        screen = if (backStack.isNotEmpty()) backStack.removeAt(backStack.lastIndex) else Screen.Tabs
+        if (screen == Screen.Tabs) backStack.clear()
         return true
     }
 
@@ -488,9 +503,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var applyUrl by mutableStateOf("")
     var applyLetterText by mutableStateOf("")
     var applyDocIds by mutableStateOf<List<String>>(emptyList())
+    var applyCover by mutableStateOf(false)
 
     fun openApply(job: Job?) {
-        screenBeforeApply = screen
+        applyCover = design.coverByDefault
         val j = job ?: clJob
         applyJob = j
         applyTitle = j?.title ?: clTitle
@@ -511,7 +527,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 it.type == DocType.ANSCHREIBEN && applyCompany.isNotBlank() && it.title.contains(applyCompany, true)
             }?.let { applyDocIds = listOf(it.id) + applyDocIds }
         }
-        screen = Screen.Apply
+        navigate(Screen.Apply)
     }
 
     fun applicantName(): String {
@@ -553,13 +569,36 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 withContext(Dispatchers.IO) {
                     val pdf = android.graphics.pdf.PdfDocument()
                     var page = 1
-                    if (applyLetterText.isNotBlank()) page = PdfExport.drawText(pdf, applyLetterText, page)
+                    val assets = loadAssets()
+                    val prof = profile
+                    val cfg = design
+                    fun sink() = DesignRenderer.PdfSink(pdf, page)
+                    if (applyCover) {
+                        val attach = buildList {
+                            if (applyLetterText.isNotBlank()) add("Anschreiben")
+                            docs.forEach { add(it.title) }
+                        }
+                        val sk = sink()
+                        DesignRenderer.renderCover(sk, prof, cfg, assets, applyTitle, applyCompany, attach)
+                        page = sk.nextPage
+                    }
+                    if (applyLetterText.isNotBlank()) {
+                        val sk = sink(); DesignRenderer.renderLetter(sk, applyLetterText, prof, cfg, assets); page = sk.nextPage
+                    }
                     for (d in docs) {
                         val orig = d.originalPath?.let { File(it) }?.takeIf { it.exists() }
-                        // Lebenslauf und Anschreiben als bearbeiteten Text, Nachweise möglichst als Original
-                        val useOriginal = orig != null && (d.type !in setOf(DocType.LEBENSLAUF, DocType.ANSCHREIBEN) || d.text.isBlank())
-                        page = if (useOriginal) PdfExport.appendPdfFile(pdf, orig!!, page)
-                        else PdfExport.drawText(pdf, d.text, page)
+                        when {
+                            // Lebenslauf und Anschreiben im gewählten Design
+                            d.type == DocType.LEBENSLAUF && d.text.isNotBlank() -> {
+                                val sk = sink(); DesignRenderer.renderCv(sk, d.text, prof, cfg, assets); page = sk.nextPage
+                            }
+                            d.type == DocType.ANSCHREIBEN && d.text.isNotBlank() -> {
+                                val sk = sink(); DesignRenderer.renderLetter(sk, d.text, prof, cfg, assets); page = sk.nextPage
+                            }
+                            // Nachweise möglichst als Original
+                            orig != null -> page = PdfExport.appendPdfFile(pdf, orig, page)
+                            else -> page = PdfExport.drawText(pdf, d.text, page)
+                        }
                     }
                     val dir = File(getApplication<Application>().cacheDir, "pdf").apply { mkdirs() }
                     val out = File(dir, applyFileName())
@@ -574,6 +613,92 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (mb > 15) toast = "Hinweis: Die Mappe ist %.1f MB groß – für E-Mails evtl. zu groß.".format(mb)
                 onReady(f)
             }.onFailure { toast = "Mappe konnte nicht erstellt werden: ${it.message}" }
+        }
+    }
+
+    // ---------- Design (Kontaktdaten, Vorlage, Foto, Unterschrift) ----------
+    var profile by mutableStateOf(settings.profile)
+    var design by mutableStateOf(settings.design)
+    /** Wird erhöht, wenn Foto oder Unterschrift geändert wurden (für die Vorschau). */
+    var designVersion by mutableIntStateOf(0)
+
+    private val designDir = File(app.filesDir, "design").apply { mkdirs() }
+    val photoFile = File(designDir, "photo.jpg")
+    val signatureFile = File(designDir, "signature.png")
+
+    fun updateProfile(p: Profile) { profile = p; settings.profile = p }
+    fun updateDesign(d: DesignConfig) { design = d; settings.design = d }
+
+    fun loadAssets(): DesignRenderer.Assets = DesignRenderer.Assets(
+        photo = if (photoFile.exists()) BitmapFactory.decodeFile(photoFile.absolutePath) else null,
+        signature = if (signatureFile.exists()) BitmapFactory.decodeFile(signatureFile.absolutePath) else null
+    )
+
+    fun setPhoto(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val bmp = PdfExport.decodeSampled(getApplication<Application>(), uri, 1000) ?: error("Bild nicht lesbar")
+                    photoFile.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+                }
+            }.onSuccess { designVersion++ }.onFailure { toast = "Foto konnte nicht übernommen werden: ${it.message}" }
+        }
+    }
+
+    fun removePhoto() { photoFile.delete(); designVersion++ }
+    fun removeSignature() { signatureFile.delete(); designVersion++ }
+
+    /** Unterschrift aus Foto/Scan: weißes Papier wird durchsichtig, die Schrift dunkelblau. */
+    fun setSignatureFromUri(uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val src = PdfExport.decodeSampled(getApplication<Application>(), uri, 1400) ?: error("Bild nicht lesbar")
+                    saveSignatureBitmap(SignatureTools.toInk(src))
+                }
+            }.onSuccess { designVersion++ }.onFailure { toast = "Unterschrift konnte nicht übernommen werden: ${it.message}" }
+        }
+    }
+
+    /** Gezeichnete Unterschrift speichern. */
+    fun saveSignature(bmp: Bitmap) {
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { saveSignatureBitmap(SignatureTools.crop(bmp)) } }
+                .onSuccess { designVersion++; toast = "Unterschrift gespeichert ✓" }
+                .onFailure { toast = "Unterschrift konnte nicht gespeichert werden: ${it.message}" }
+        }
+    }
+
+    private fun saveSignatureBitmap(bmp: Bitmap) {
+        signatureFile.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    fun cvTextForDesign(): String =
+        documents.firstOrNull { it.type == DocType.LEBENSLAUF && it.text.isNotBlank() }?.text ?: SampleTexts.CV
+
+    fun letterTextForDesign(): String = clResult.ifBlank {
+        documents.firstOrNull { it.type == DocType.ANSCHREIBEN && it.text.isNotBlank() }?.text ?: SampleTexts.LETTER
+    }
+
+    /** Erstellt Lebenslauf oder Anschreiben als gestaltete PDF und ruft danach [onReady] auf. */
+    fun exportDesigned(isCv: Boolean, text: String, title: String, onReady: (File) -> Unit) {
+        busyMessage = "PDF wird gestaltet …"
+        viewModelScope.launch {
+            val r = runCatching {
+                withContext(Dispatchers.IO) {
+                    val pdf = android.graphics.pdf.PdfDocument()
+                    val sk = DesignRenderer.PdfSink(pdf, 1)
+                    if (isCv) DesignRenderer.renderCv(sk, text, profile, design, loadAssets())
+                    else DesignRenderer.renderLetter(sk, text, profile, design, loadAssets())
+                    val dir = File(getApplication<Application>().cacheDir, "pdf").apply { mkdirs() }
+                    val out = File(dir, PdfExport.safeName(title) + ".pdf")
+                    out.outputStream().use { pdf.writeTo(it) }
+                    pdf.close()
+                    out
+                }
+            }
+            busyMessage = null
+            r.onSuccess(onReady).onFailure { toast = "PDF konnte nicht erstellt werden: ${it.message}" }
         }
     }
 }
